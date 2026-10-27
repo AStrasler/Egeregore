@@ -104,7 +104,7 @@ def build_server(service: CoordinationService | None = None) -> MCPServer:
 
     @server.tool(annotations=_WRITE)
     def release_task(issue_number: int, status: str, reason: str) -> ToolResponse:
-        """Release the caller's lease. status:done needs evidence, and a linked pull request must be merged and reviewed."""
+        """Release the caller's lease. status:done needs evidence, and a linked pull request must be merged and reviewed. A required pull request with no link is refused."""
         return _response(bound.release_task(issue_number, status, reason))
 
     @server.tool(annotations=_WRITE)

@@ -1014,6 +1014,11 @@ class CoordinationService:
             pull_number = int(match.group("number"))
             if pull_number not in numbers:
                 numbers.append(pull_number)
+        if not numbers:
+            return err(
+                "not_done",
+                "A pull request is required, but no pull request URL or number is linked. status:done was not set.",
+            )
         for pull_number in numbers:
             try:
                 pull = self.github.get_pull(pull_number)  # type: ignore[union-attr]

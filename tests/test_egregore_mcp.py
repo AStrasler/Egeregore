@@ -1057,6 +1057,59 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("status:done", self.store.label_names(gated))
         self.assertEqual(len(self.store.list_comments(gated)), 2)
 
+    def test_status_done_refuses_a_required_pull_request_with_no_link(self) -> None:
+        number = self._fresh_claim(
+            task_body(
+                outcome="Ship the server in a pull request.",
+                context="Implementation notes for the MCP server.",
+                out_of_scope="Leave credentials alone.",
+            )
+        )
+        self.store.create_comment(number, "## Evidence\n\nThe branch is ready.\n")
+        before = len(self.store.list_comments(number))
+        refused = self.cursor.release_task(number, "done", "no pull request linked")
+        self.assertEqual(refused["error"]["code"], "not_done")
+        self.assertIn("no pull request URL or number is linked", refused["error"]["message"])
+        self.assertEqual(len(self.store.list_comments(number)), before)
+        self.assertIn("status:claimed", self.store.label_names(number))
+        self.assertNotIn("status:done", self.store.label_names(number))
+        self.assertEqual(coord.assess_lease(self.store.list_comments(number), NOW).status, "active")
+
+    def test_status_done_accepts_a_required_task_with_a_merged_reviewed_pull_request(self) -> None:
+        sha = "f" * 40
+        pull = 60
+        thumbs = [{"content": "+1", "user": {"login": "chatgpt-codex-connector[bot]"}}]
+        self.store.seed_pull(pull, sha, merged=True, reactions=thumbs)
+        self.store.comments[pull].append(summary_comment(sha, unresolved=False, comment_id=940, created=NOW))
+        number = self._fresh_claim(
+            task_body(
+                outcome="Ship the server in a pull request.",
+                context=f"https://github.com/AStrasler/Egeregore/pull/{pull}",
+                out_of_scope="Leave credentials alone.",
+            )
+        )
+        self.store.create_comment(number, "## Evidence\n\nThe pull request merged.\n")
+        finished = self.cursor.release_task(number, "done", "merged and reviewed")
+        self.assertTrue(finished["ok"], finished)
+        self.assertEqual(finished["result"]["status"], "status:done")
+        self.assertIn("status:done", self.store.label_names(number))
+        self.assertEqual(coord.assess_lease(self.store.list_comments(number), NOW).status, "released")
+
+    def test_status_done_accepts_a_docs_task_with_no_pull_request(self) -> None:
+        number = self._fresh_claim(
+            task_body(
+                outcome="The runbook paragraph is updated.",
+                context="https://github.com/AStrasler/Egeregore/issues/13",
+                out_of_scope="Documentation only. No pull request.",
+            )
+        )
+        self.store.create_comment(number, "## Evidence\n\nThe paragraph is updated.\n")
+        finished = self.cursor.release_task(number, "done", "docs need no pull request")
+        self.assertTrue(finished["ok"], finished)
+        self.assertEqual(finished["result"]["status"], "status:done")
+        self.assertIn("status:done", self.store.label_names(number))
+        self.assertEqual(coord.assess_lease(self.store.list_comments(number), NOW).status, "released")
+
     def test_review_request_rejects_closed_pulls_and_duplicate_heads(self) -> None:
         closed = 40
         self.store.seed_pull(closed, HEAD, state="closed", merged=False)
