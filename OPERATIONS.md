@@ -17,13 +17,13 @@ One `status:` label at a time. `lease:expired` may sit beside `status:ready` unt
 | `status:needs-review` | Waiting on Codex or another review |
 | `status:needs-owner` | Waiting on Aaron |
 | `status:done` | Outcome recorded |
-| `lease:expired` | A claim lapsed. The issue can be reclaimed |
+| `lease:expired` | A claim lapsed. The issue can be reclaimed. This is the only `lease:` label in the catalog |
 | `agent:chatgpt` `agent:grokbot` `agent:cursor` `agent:codex` `agent:aaron` | Current role |
 | `type:task` `type:handoff` `type:evidence` `type:review` `type:decision` | Issue form |
 | `priority:low` `priority:normal` `priority:high` `priority:urgent` | Ordering hint. Urgent does not skip owner approval |
 | `project:coordination` `project:whoop-lens` `project:weather-intelligence` | Coordination topic only |
 
-GitHub will ignore a label named in a form until the label exists. The default `bug` and `enhancement` labels can stay. Status still comes from `status:*`.
+GitHub will ignore a label named in a form until the label exists. The default `bug` and `enhancement` labels can stay. Status still comes from `status:*`. A live lease is `status:claimed` or `status:in-progress` plus the claim comment. `lease:active` is not a catalog label. Delete it if it appears. It was created without a color or description and does not change who holds a lease.
 
 Create the catalog from a clone of this repo after merge:
 
@@ -47,6 +47,7 @@ Claim, and replace `status:ready` with `status:claimed`. Remove `lease:expired` 
 
 ```text
 ## Claim
+Agent: Grokbot
 Claim-Agent: grokbot
 Claimed-At: 2026-10-27T14:00:00Z
 Lease-Expires: 2026-10-27T20:00:00Z
@@ -59,6 +60,7 @@ Renew before the expiry if the work is still yours:
 
 ```text
 ## Lease renewal
+Agent: Grokbot
 Claim-Agent: grokbot
 Lease-Expires: 2026-10-28T02:00:00Z
 Note: Still reading the task thread
@@ -68,6 +70,7 @@ Release when you stop, finish, or block:
 
 ```text
 ## Lease release
+Agent: Grokbot
 Claim-Agent: grokbot
 Lease-Release: grokbot
 Reason: pausing
@@ -81,6 +84,7 @@ Mid-task progress is a comment on the task issue:
 
 ```text
 ## Progress
+Agent: Cursor
 Claim-Agent: cursor
 Done: Opened the branch and linked it below.
 Next: Add the empty-state test.
@@ -148,7 +152,7 @@ When the stop is a merge, deploy, credential, permission, visibility change, new
 | `Issue hygiene` | Issue opened or edited. A separate job runs when a comment starts with `Decision:` | `contents: read`, `issues: write` |
 | `Lease watch` | Daily at 12:17 UTC, or manual `workflow_dispatch` | `contents: read`, `issues: write` |
 
-`workflow_dispatch` on lease watch reruns the flagger. Issue and lease workflows run the code on the default branch, so a pull request cannot change them until Aaron merges it. The cron is `17 12 * * *`. Phase 2 ran lease watch with `workflow_dispatch`, including Actions runs 40548511242, 40548792034, and 40549228229. The scheduled cron was not part of that test. Treat the schedule as configured, and expect GitHub to delay or skip a day. Reclaim from the comments either way. A run on `main` that only sees active leases prints nothing. Pull request #8 adds a one-line summary and is waiting for Aaron to merge.
+`workflow_dispatch` on lease watch reruns the flagger. Issue and lease workflows run the code on the default branch, so a pull request cannot change them until Aaron merges it. The cron is `17 12 * * *`. Phase 2 ran lease watch with `workflow_dispatch`, including Actions runs 40548511242, 40548792034, and 40549228229. The scheduled cron was not part of that test. Treat the schedule as configured, and expect GitHub to delay or skip a day. Reclaim from the comments either way. Since pull request #8 merged, every run prints one summary line with issues scanned, active, expired, and conflicts warned, including a run that only sees active leases.
 
 The hygiene job comments when required fields, the data-boundary checkbox, or a credential-like string are missing or present. It does not print the issue body. It can add `status:needs-owner`. It does not remove that label.
 

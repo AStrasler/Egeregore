@@ -56,7 +56,7 @@ Agents do not edit CODEOWNERS to add themselves. Agents do not grant themselves 
 
 ## Accounts
 
-Only `@AStrasler` is fixed. ChatGPT, Grokbot, Cursor, and the Codex role currently post as `@AStrasler` through his connected account. `github-actions[bot]` and `chatgpt-codex-connector[bot]` post as themselves. A comment under his login is not his approval. Until an owner decision maps a different login, the `Claim-Agent` line is the record of which role holds the task. Do not guess a bot username and assign it.
+Only `@AStrasler` is fixed. ChatGPT, Grokbot, Cursor, and the Codex role currently post as `@AStrasler` through his connected account. `github-actions[bot]` and `chatgpt-codex-connector[bot]` post as themselves. Every coordination comment includes `Agent: Cursor`, `Agent: Codex`, `Agent: Grokbot`, `Agent: ChatGPT`, or `Agent: Aaron`. Lease comments also keep `Claim-Agent`. A comment under his login, including one with an `Agent` line, is not his approval. Separate GitHub logins or GitHub Apps for the roles are an owner decision and are not in place. Do not guess a bot username and assign it.
 
 Suggested access, applied by Aaron per repository, when an agent has its own login:
 
