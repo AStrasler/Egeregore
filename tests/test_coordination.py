@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from urllib.parse import unquote
 from contextlib import redirect_stderr
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -593,7 +594,10 @@ class LeaseWatchSummaryTests(unittest.TestCase):
             if method == "POST" and path.endswith("/comments"):
                 posts.append((path, payload))
                 return {}
-            if method in {"POST", "DELETE"} and "/labels" in path:
+            if method == "POST" and "/labels" in path:
+                posts.append((path, payload))
+                return {}
+            if method == "DELETE" and "/labels" in path:
                 return {}
             raise AssertionError((method, path))
 
@@ -605,13 +609,31 @@ class LeaseWatchSummaryTests(unittest.TestCase):
                 code = coord.cmd_check_leases(True, iso(NOW))
         return code, captured.getvalue(), posts
 
-    def test_summary_line_names_the_four_counts(self) -> None:
-        line = coord.lease_watch_summary_line(scanned=4, active=2, expired=1, conflicts_warned=1)
+    def test_summary_line_names_the_run_class_and_counts(self) -> None:
+        line = coord.lease_watch_summary_line(
+            scanned=4, active=2, expired=1, conflicts_warned=1, stalls_flagged=0
+        )
         self.assertEqual(
             line,
-            "lease-watch: issues scanned 4, active 2, expired 1, conflicts warned 1",
+            "lease-watch: run conflict, issues scanned 4, active 2, expired 1, conflicts warned 1, stalls flagged 0",
         )
         self.assertNotIn("\n", line)
+        self.assertEqual(
+            coord.lease_watch_run_class(active=1, expired=0, conflicts_warned=0, stalls_flagged=0),
+            "active",
+        )
+        self.assertEqual(
+            coord.lease_watch_run_class(active=0, expired=2, conflicts_warned=0, stalls_flagged=1),
+            "expired",
+        )
+        self.assertEqual(
+            coord.lease_watch_run_class(active=0, expired=0, conflicts_warned=0, stalls_flagged=1),
+            "stall",
+        )
+        self.assertEqual(
+            coord.lease_watch_run_class(active=0, expired=0, conflicts_warned=0, stalls_flagged=0),
+            "no-op",
+        )
 
     def test_active_only_run_logs_a_one_line_summary(self) -> None:
         created = NOW - timedelta(hours=1)
@@ -626,7 +648,7 @@ class LeaseWatchSummaryTests(unittest.TestCase):
         self.assertEqual(posts, [])
         self.assertEqual(
             log,
-            "lease-watch: issues scanned 1, active 1, expired 0, conflicts warned 0\n",
+            "lease-watch: run active, issues scanned 1, active 1, expired 0, conflicts warned 0, stalls flagged 0\n",
         )
 
     def test_summary_counts_scans_active_expired_and_new_conflict_warnings(self) -> None:
@@ -668,9 +690,448 @@ class LeaseWatchSummaryTests(unittest.TestCase):
         self.assertNotIn("issue 16:", log)
         self.assertTrue(
             log.endswith(
-                "lease-watch: issues scanned 5, active 3, expired 1, conflicts warned 1\n"
+                "lease-watch: run conflict, issues scanned 5, active 3, expired 1, conflicts warned 1, stalls flagged 0\n"
             )
         )
+
+    def test_live_lease_is_not_flagged_when_the_issue_is_old(self) -> None:
+        opened = NOW - timedelta(days=10)
+        claimed = NOW - timedelta(hours=1)
+        issues = [
+            {
+                "number": 21,
+                "created_at": iso(opened),
+                "labels": [{"name": "status:in-progress"}, {"name": "status:needs-review"}],
+            }
+        ]
+        comments = {21: [self.claim("cursor", claimed, NOW + timedelta(hours=4), 1)]}
+        code, log, posts = self.run_watch(issues, comments)
+        self.assertEqual(code, 0)
+        self.assertEqual(posts, [])
+        self.assertIn("run active", log)
+        self.assertIn("stalls flagged 0", log)
+
+    def test_idle_needs_review_is_flagged_once(self) -> None:
+        created = NOW - timedelta(days=4)
+        issues = [
+            {
+                "number": 22,
+                "created_at": iso(created),
+                "labels": [{"name": "status:needs-review"}],
+            }
+        ]
+        code, log, posts = self.run_watch(issues, {22: []})
+        self.assertEqual(code, 0)
+        stall_posts = [
+            payload
+            for _path, payload in posts
+            if isinstance(payload, dict) and "<!-- egregore-stall:" in str(payload.get("body"))
+        ]
+        self.assertEqual(len(stall_posts), 1)
+        self.assertIn("Reason: needs-review.", str(stall_posts[0].get("body")))
+        label_posts = [
+            payload
+            for path, payload in posts
+            if path.endswith("/labels") and isinstance(payload, dict)
+        ]
+        self.assertEqual(label_posts, [{"labels": ["stall:flagged"]}])
+        self.assertIn("run stall", log)
+        self.assertIn("stalls flagged 1", log)
+
+        marker = str(stall_posts[0].get("body"))
+        again, again_log, again_posts = self.run_watch(
+            [
+                {
+                    "number": 22,
+                    "created_at": iso(created),
+                    "labels": [{"name": "status:needs-review"}],
+                }
+            ],
+            {22: [comment(marker, NOW - timedelta(hours=1), 9)]},
+        )
+        self.assertEqual(again, 0)
+        self.assertEqual([payload for _path, payload in again_posts], [{"labels": ["stall:flagged"]}])
+        self.assertIn("run no-op", again_log)
+        self.assertIn("stalls flagged 0", again_log)
+
+        quiet, quiet_log, quiet_posts = self.run_watch(
+            [
+                {
+                    "number": 22,
+                    "created_at": iso(created),
+                    "labels": [{"name": "status:needs-review"}, {"name": "stall:flagged"}],
+                }
+            ],
+            {22: [comment(marker, NOW - timedelta(hours=1), 9)]},
+        )
+        self.assertEqual(quiet, 0)
+        self.assertEqual(quiet_posts, [])
+        self.assertIn("run no-op", quiet_log)
+
+    def test_fresh_lease_backstop_is_activity_so_the_same_run_does_not_stall(self) -> None:
+        opened = NOW - timedelta(days=10)
+        claimed = NOW - timedelta(days=5)
+        issues = [
+            {
+                "number": 23,
+                "created_at": iso(opened),
+                "labels": [{"name": "status:claimed"}, {"name": "status:needs-owner"}],
+            }
+        ]
+        comments = {23: [self.claim("cursor", claimed, claimed + timedelta(hours=4), 1)]}
+        code, log, posts = self.run_watch(issues, comments)
+        self.assertEqual(code, 0)
+        bodies = [
+            str(payload.get("body"))
+            for _path, payload in posts
+            if isinstance(payload, dict) and payload.get("body")
+        ]
+        self.assertEqual(sum("Lease backstop." in body for body in bodies), 1)
+        self.assertEqual(sum("<!-- egregore-stall:" in body for body in bodies), 0)
+        self.assertIn("stalls flagged 0", log)
+        self.assertIn("run expired", log)
+
+        backstop = next(body for body in bodies if "Lease backstop." in body)
+        later, later_log, later_posts = self.run_watch(
+            [
+                {
+                    "number": 23,
+                    "created_at": iso(opened),
+                    "labels": [
+                        {"name": "status:needs-owner"},
+                        {"name": "lease:expired"},
+                    ],
+                }
+            ],
+            {23: [comment(backstop, NOW - timedelta(days=4), 2)]},
+        )
+        self.assertEqual(later, 0)
+        stall_posts = [
+            payload
+            for _path, payload in later_posts
+            if isinstance(payload, dict) and "<!-- egregore-stall:" in str(payload.get("body"))
+        ]
+        self.assertEqual(len(stall_posts), 1)
+        self.assertIn(f"<!-- egregore-stall:{iso(NOW - timedelta(days=4))} -->", str(stall_posts[0].get("body")))
+        self.assertIn("stalls flagged 1", later_log)
+
+
+class FormLabelAndStallTests(unittest.TestCase):
+    def test_form_labels_replace_a_stale_set_and_then_match(self) -> None:
+        title = "[Task]: Docs"
+        body = issue_body(task_fields(Project="whoop-lens", Role="codex", Priority="high"))
+        stale = ["project:coordination", "priority:low", "agent:cursor", "status:ready"]
+        plan = coord.form_label_updates(title, body, stale)
+        self.assertIsNotNone(plan)
+        assert plan is not None
+        self.assertEqual(plan.add, ("project:whoop-lens", "priority:high", "agent:codex"))
+        self.assertEqual(plan.remove, ("project:coordination", "priority:low", "agent:cursor"))
+        updated = ["status:ready", "project:whoop-lens", "priority:high", "agent:codex"]
+        self.assertIsNone(coord.form_label_updates(title, body, updated))
+
+    def test_role_any_does_not_set_or_clear_an_agent_label(self) -> None:
+        body = issue_body(task_fields(Role="any"))
+        self.assertIsNone(
+            coord.form_label_updates(
+                "[Task]: Docs",
+                body,
+                ["project:coordination", "priority:normal", "agent:cursor"],
+            )
+        )
+
+    def test_handoff_to_and_decision_owner_set_the_agent_label(self) -> None:
+        handoff = coord.form_label_updates(
+            "[Handoff]: Next",
+            issue_body({"Project": "coordination", "To": "grokbot"}),
+            ["agent:cursor"],
+        )
+        self.assertIsNotNone(handoff)
+        assert handoff is not None
+        self.assertEqual(handoff.add, ("project:coordination", "agent:grokbot"))
+        self.assertEqual(handoff.remove, ("agent:cursor",))
+        decision = coord.form_label_updates(
+            "[Decision]: Merge the docs",
+            issue_body({"Project": "coordination"}),
+            ["agent:cursor", "project:coordination"],
+        )
+        self.assertIsNotNone(decision)
+        assert decision is not None
+        self.assertEqual(decision.add, ("agent:aaron",))
+        self.assertEqual(decision.remove, ("agent:cursor",))
+        self.assertIsNone(
+            coord.form_label_updates(
+                "[Decision]: Merge the docs",
+                issue_body({"Project": "coordination"}),
+                ["project:coordination", "agent:aaron"],
+            )
+        )
+
+    def test_duplicate_task_titles_skip_self_and_non_tasks(self) -> None:
+        title = "[Task]: Align the operating docs with the pilot"
+        close = "[Task]: Align the operating docs with the pilots"
+        self.assertTrue(coord.titles_are_close(title, close))
+        self.assertFalse(coord.titles_are_close("[Task]: Docs", "[Task]: Dock"))
+        problems = coord.duplicate_task_problems(
+            title,
+            [
+                (4, title),
+                (8, "[Handoff]: Align the operating docs with the pilot"),
+                (9, close),
+                (10, "[Task]: Record the weather station battery replacement"),
+                (11, close),
+                (12, close),
+                (13, close),
+            ],
+            number=4,
+        )
+        self.assertEqual(
+            problems,
+            (
+                "Title closely matches open task #9.",
+                "Title closely matches open task #11.",
+                "Title closely matches open task #12.",
+            ),
+        )
+        self.assertEqual(coord.duplicate_task_problems("[Handoff]: Next", [(9, close)]), ())
+
+    def test_closed_task_rewrite_and_flag_modes(self) -> None:
+        labels = ["status:ready", "status:claimed", "type:task"]
+        plan, message = coord.closed_task_plan("[Task]: Docs", labels, closed=True, mode="rewrite")
+        self.assertIsNone(message)
+        self.assertIsNotNone(plan)
+        assert plan is not None
+        self.assertEqual(plan.add, ("status:done",))
+        self.assertEqual(plan.remove, ("status:ready", "status:claimed"))
+        flagged, note = coord.closed_task_plan("[Task]: Docs", labels, closed=True, mode="flag")
+        self.assertIsNone(flagged)
+        self.assertEqual(note, "This closed task is missing status:done.")
+        self.assertEqual(
+            coord.closed_task_plan(
+                "[Task]: Docs",
+                ["status:done", "status:ready"],
+                closed=True,
+                mode="flag",
+            ),
+            (None, None),
+        )
+        self.assertEqual(
+            coord.closed_task_plan("[Task]: Docs", ["status:done"], closed=True, mode="rewrite"),
+            (None, None),
+        )
+        self.assertEqual(
+            coord.closed_task_plan("[Handoff]: Next", labels, closed=True, mode="rewrite"),
+            (None, None),
+        )
+        self.assertEqual(
+            coord.closed_task_plan("[Task]: Docs", labels, closed=False, mode="rewrite"),
+            (None, None),
+        )
+        self.assertEqual(coord.closed_status_mode("flag"), "flag")
+        self.assertEqual(coord.closed_status_mode("FLAG"), "flag")
+        self.assertEqual(coord.closed_status_mode("rewrite"), "rewrite")
+
+    def test_stall_plan_waits_for_a_live_lease_and_does_not_repeat(self) -> None:
+        created = NOW - timedelta(days=5)
+        labels = ["status:needs-owner", "type:handoff"]
+        body, add_label = coord.stall_plan(labels, created, [], NOW, lease_active=False)
+        self.assertIsNotNone(body)
+        assert body is not None
+        self.assertIn(f"<!-- egregore-stall:{iso(created)} -->", body)
+        self.assertNotIn("handoff+needs-owner:", body)
+        self.assertIn("Reason: handoff+needs-owner.", body)
+        self.assertTrue(add_label)
+        self.assertEqual(
+            coord.stall_plan(labels, created, [], NOW, lease_active=True),
+            (None, False),
+        )
+        self.assertEqual(
+            coord.stall_plan(labels, NOW - timedelta(days=1), [], NOW, lease_active=False),
+            (None, False),
+        )
+        self.assertEqual(
+            coord.stall_plan(["status:done", "type:handoff"], created, [], NOW, lease_active=False),
+            (None, False),
+        )
+        self.assertEqual(coord.stall_plan(labels, None, [], NOW, lease_active=False), (None, False))
+        noted = comment(body, NOW - timedelta(hours=2), 3)
+        self.assertEqual(
+            coord.stall_plan(labels, created, [noted], NOW, lease_active=False),
+            (None, True),
+        )
+        owner_only, owner_label = coord.stall_plan(
+            ["status:needs-owner"],
+            created,
+            [noted],
+            NOW,
+            lease_active=False,
+        )
+        self.assertIsNone(owner_only)
+        self.assertTrue(owner_label)
+        older = comment(
+            f"<!-- egregore-stall:needs-review:{iso(created)} -->\n\nStall flag.\n",
+            NOW - timedelta(hours=3),
+            5,
+        )
+        changed, changed_label = coord.stall_plan(
+            ["status:needs-owner"],
+            created,
+            [older],
+            NOW,
+            lease_active=False,
+        )
+        self.assertIsNone(changed)
+        self.assertTrue(changed_label)
+        self.assertEqual(
+            coord.stall_plan(
+                labels + ["stall:flagged"],
+                created,
+                [noted],
+                NOW,
+                lease_active=False,
+            ),
+            (None, False),
+        )
+        newer = comment("Still working.\n", NOW - timedelta(hours=1), 4)
+        self.assertEqual(
+            coord.stall_plan(labels, created, [noted, newer], NOW, lease_active=False),
+            (None, False),
+        )
+
+
+class HygieneApplyTests(unittest.TestCase):
+    def apply_issue(
+        self,
+        issue: dict[str, object],
+        open_issues: list[dict[str, object]],
+        *,
+        env: dict[str, str] | None = None,
+        comments: list[dict[str, object]] | None = None,
+    ) -> tuple[list[tuple[str, str, object]], dict[str, object]]:
+        store = {
+            "labels": [str(item["name"]) for item in issue.get("labels") or [] if isinstance(item, dict)],
+            "comments": list(comments or []),
+        }
+        calls: list[tuple[str, str, object]] = []
+
+        def fake_gh(args: list[str], payload: dict[str, object] | None = None) -> object:
+            path = next(arg for arg in args if arg.startswith("repos/"))
+            method = args[args.index("--method") + 1]
+            calls.append((method, path, payload))
+            if method == "GET" and path.endswith(f"/issues/{issue['number']}"):
+                return {
+                    "number": issue["number"],
+                    "title": issue["title"],
+                    "body": issue["body"],
+                    "state": issue.get("state", "open"),
+                    "labels": [{"name": name} for name in store["labels"]],
+                }
+            if method == "GET" and path.endswith("/issues"):
+                return open_issues
+            if method == "GET" and path.endswith("/comments"):
+                return list(store["comments"])
+            if method == "POST" and path.endswith("/comments"):
+                store["comments"].append({"id": len(store["comments"]) + 1, "body": payload["body"] if payload else ""})
+                return {}
+            if method == "PATCH" and "/comments/" in path:
+                return {}
+            if method == "POST" and path.endswith("/labels"):
+                for name in (payload or {}).get("labels") or []:
+                    if name not in store["labels"]:
+                        store["labels"].append(str(name))
+                return {}
+            if method == "DELETE" and "/labels/" in path:
+                name = unquote(path.rsplit("/", 1)[-1])
+                if name in store["labels"]:
+                    store["labels"].remove(name)
+                return {}
+            raise AssertionError((method, path))
+
+        values = {"GITHUB_REPOSITORY": "AStrasler/Egeregore", "ISSUE_NUMBER": str(issue["number"])}
+        if env:
+            values.update(env)
+        with patch.object(coord, "gh_json", fake_gh), patch.dict(os.environ, values, clear=False):
+            if "EGREGORE_CLOSED_STATUS" not in values:
+                os.environ.pop("EGREGORE_CLOSED_STATUS", None)
+            code = coord.cmd_check_issue(True, None, None)
+        self.assertEqual(code, 0)
+        return calls, store
+
+    def test_apply_syncs_form_labels_and_warns_for_a_close_title(self) -> None:
+        title = "[Task]: Align the operating docs with the pilot"
+        body = issue_body(task_fields())
+        issue = {
+            "number": 30,
+            "title": title,
+            "body": body,
+            "state": "open",
+            "labels": [{"name": "type:task"}, {"name": "status:ready"}, {"name": "agent:grokbot"}],
+        }
+        others = [
+            {"number": 30, "title": title},
+            {"number": 31, "title": "[Task]: Align the operating docs with the pilots"},
+            {"number": 32, "title": "[Handoff]: Align the operating docs with the pilot", "pull_request": {}},
+        ]
+        calls, store = self.apply_issue(issue, others)
+        label_adds = [payload for method, path, payload in calls if method == "POST" and path.endswith("/labels")]
+        self.assertEqual(
+            label_adds,
+            [{"labels": ["project:coordination", "priority:normal", "agent:cursor"]}],
+        )
+        removed = [unquote(path.rsplit("/", 1)[-1]) for method, path, _payload in calls if method == "DELETE"]
+        self.assertEqual(removed, ["agent:grokbot"])
+        comments = [payload for method, path, payload in calls if method == "POST" and path.endswith("/comments")]
+        self.assertEqual(len(comments), 1)
+        self.assertIn("Title closely matches open task #31.", str(comments[0]["body"]))
+        self.assertNotIn("#32", str(comments[0]["body"]))
+        again, again_store = self.apply_issue(
+            {
+                **issue,
+                "labels": [{"name": name} for name in store["labels"]],
+            },
+            others,
+            comments=list(store["comments"]),
+        )
+        self.assertEqual(
+            [call for call in again if call[0] in {"POST", "PATCH", "DELETE"}],
+            [],
+        )
+        self.assertEqual(again_store["comments"], store["comments"])
+
+    def test_closed_task_rewrite_sets_done_and_flag_mode_only_comments(self) -> None:
+        issue = {
+            "number": 40,
+            "title": "[Task]: Docs",
+            "body": issue_body(task_fields()),
+            "state": "closed",
+            "labels": [
+                {"name": "type:task"},
+                {"name": "status:claimed"},
+                {"name": "status:ready"},
+                {"name": "project:coordination"},
+                {"name": "priority:normal"},
+                {"name": "agent:cursor"},
+            ],
+        }
+        calls, store = self.apply_issue(issue, [])
+        removed = [unquote(path.rsplit("/", 1)[-1]) for method, path, _payload in calls if method == "DELETE"]
+        self.assertEqual(removed, ["status:ready", "status:claimed"])
+        added = [payload for method, path, payload in calls if method == "POST" and str(path).endswith("/labels")]
+        self.assertEqual(added, [{"labels": ["status:done"]}])
+        self.assertNotIn(
+            "POST",
+            [method for method, path, _payload in calls if path.endswith("/comments")],
+        )
+        self.assertEqual(store["labels"], ["type:task", "project:coordination", "priority:normal", "agent:cursor", "status:done"])
+
+        flagged, flagged_store = self.apply_issue(issue, [], env={"EGREGORE_CLOSED_STATUS": "flag"})
+        self.assertEqual(
+            [call for call in flagged if call[0] in {"POST", "DELETE"} and "/labels" in call[1]],
+            [],
+        )
+        notes = [payload for method, path, payload in flagged if method == "POST" and path.endswith("/comments")]
+        self.assertEqual(len(notes), 1)
+        self.assertIn("This closed task is missing status:done.", str(notes[0]["body"]))
+        self.assertIn("status:claimed", flagged_store["labels"])
 
 
 class CliTests(unittest.TestCase):
@@ -739,8 +1200,10 @@ class LabelScriptTests(unittest.TestCase):
             "project:weather-intelligence",
             "priority:urgent",
             "type:decision",
+            "stall:flagged",
         ):
             self.assertIn(label, names)
+        self.assertNotIn("lease:active", names)
 
     def test_extra_project_and_rejected_slug(self) -> None:
         added = subprocess.run(
@@ -832,6 +1295,7 @@ class RepoPolicyTests(unittest.TestCase):
 
         hygiene = (workflow_dir / "issue-hygiene.yml").read_text(encoding="utf-8")
         self.assertIn("startsWith(github.event.comment.body, 'Decision:')", hygiene)
+        self.assertIn("types: [opened, edited, closed]", hygiene)
         ci = (workflow_dir / "ci.yml").read_text(encoding="utf-8")
         self.assertIn("python3 -m unittest discover -s tests -v", ci)
         self.assertLess(ci.index("permissions:"), ci.index("jobs:"))

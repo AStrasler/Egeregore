@@ -8,6 +8,7 @@ only when `--apply` is set, which is how the workflows run.
 from __future__ import annotations
 
 import argparse
+import difflib
 import json
 import os
 import re
@@ -52,6 +53,11 @@ STATUS_LABELS = (
 ACTIVE_LEASE_LABELS = frozenset({"status:claimed", "status:in-progress"})
 OWNER_LOGIN = "AStrasler"
 MAX_LEASE = timedelta(hours=24)
+STALL_AFTER = timedelta(days=3)
+STALL_LABEL = "stall:flagged"
+STALL_STAMP_RE = re.compile(r"<!-- egregore-stall:(?:[a-z0-9+-]+:)?(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) -->")
+PROJECT_SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+KNOWN_PROJECTS = frozenset({"coordination", "whoop-lens", "weather-intelligence"})
 
 REQUIRED_SECTIONS = {
     "task": (
@@ -751,6 +757,220 @@ def upsert_marker_comment(repo: str, number: int, marker: str, body: str) -> Non
     )
 
 
+def with_problems(check: IssueCheck, extra: Sequence[str]) -> IssueCheck:
+    if not extra:
+        return check
+    return IssueCheck(
+        ok=False,
+        kind=check.kind,
+        problems=check.problems + tuple(extra),
+        needs_owner=check.needs_owner,
+        secret=check.secret,
+    )
+
+
+def form_label_updates(title: str, body: str, labels: Sequence[str]) -> LabelPlan | None:
+    """Copy Project, Priority, and the role field onto labels. Empty fields are left alone."""
+    parsed = sections(body or "")
+    kind = kind_from_title(title or "")
+    desired: list[str] = []
+    project = first_line(parsed.get("Project")).lower()
+    slug = project if project in KNOWN_PROJECTS else ""
+    if project == "other":
+        slug = first_line(parsed.get("Project slug")).lower()
+    if slug and PROJECT_SLUG_RE.fullmatch(slug):
+        desired.append(f"project:{slug}")
+    priority = first_line(parsed.get("Priority")).lower()
+    if priority in PRIORITIES:
+        desired.append(f"priority:{priority}")
+    agent = ""
+    if kind == "task":
+        role = first_line(parsed.get("Role")).lower()
+        if role in ALLOWED_AGENTS:
+            agent = role
+    elif kind == "handoff":
+        role = first_line(parsed.get("To")).lower()
+        if role in ALLOWED_AGENTS:
+            agent = role
+    elif kind == "decision":
+        agent = "aaron"
+    if agent:
+        desired.append(f"agent:{agent}")
+    current = set(labels)
+    add: list[str] = []
+    remove: list[str] = []
+    for name in desired:
+        prefix = name.split(":", 1)[0] + ":"
+        for old in sorted(current):
+            if old.startswith(prefix) and old != name and old not in remove:
+                remove.append(old)
+        if name not in current:
+            add.append(name)
+    if not add and not remove:
+        return None
+    return LabelPlan(tuple(add), tuple(remove), "form-labels", "sync")
+
+
+def normalize_task_title(title: str) -> str:
+    text = re.sub(r"(?i)^\[task\]:\s*", "", title or "").casefold()
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return " ".join(text.split())
+
+
+def titles_are_close(left: str, right: str) -> bool:
+    a = normalize_task_title(left)
+    b = normalize_task_title(right)
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    if min(len(a), len(b)) < 16:
+        return False
+    return difflib.SequenceMatcher(None, a, b).ratio() >= 0.86
+
+
+def duplicate_task_problems(
+    title: str,
+    open_tasks: Sequence[tuple[int, str]],
+    *,
+    number: int | None = None,
+) -> tuple[str, ...]:
+    if kind_from_title(title or "") != "task":
+        return ()
+    problems: list[str] = []
+    for other_number, other_title in open_tasks:
+        if number is not None and other_number == number:
+            continue
+        if kind_from_title(other_title) != "task":
+            continue
+        if titles_are_close(title, other_title):
+            problems.append(f"Title closely matches open task #{other_number}.")
+        if len(problems) == 3:
+            break
+    return tuple(problems)
+
+
+def closed_status_mode(value: str | None = None) -> str:
+    raw = value if value is not None else os.environ.get("EGREGORE_CLOSED_STATUS", "rewrite")
+    return "flag" if raw.strip().lower() == "flag" else "rewrite"
+
+
+def closed_task_plan(
+    title: str,
+    labels: Sequence[str],
+    *,
+    closed: bool,
+    mode: str,
+) -> tuple[LabelPlan | None, str | None]:
+    """Closed tasks get status:done. flag mode records the gap and does not relabel."""
+    if not closed or kind_from_title(title or "") != "task":
+        return None, None
+    present_status = [name for name in STATUS_LABELS if name in set(labels)]
+    if present_status == ["status:done"]:
+        return None, None
+    if mode == "flag":
+        if "status:done" in present_status:
+            return None, None
+        return None, "This closed task is missing status:done."
+    remove = tuple(name for name in present_status if name != "status:done")
+    add = tuple() if "status:done" in present_status else ("status:done",)
+    if not add and not remove:
+        return None, None
+    return LabelPlan(add, remove, "closed-task", "done"), None
+
+
+def stall_reason(labels: Sequence[str]) -> str | None:
+    names = set(labels)
+    if "status:done" in names:
+        return None
+    parts: list[str] = []
+    if "status:needs-review" in names:
+        parts.append("needs-review")
+    if "type:handoff" in names:
+        parts.append("handoff")
+    if "status:needs-owner" in names:
+        parts.append("needs-owner")
+    return "+".join(parts) if parts else None
+
+
+def latest_unstalled_activity(created_at: datetime, comments: Sequence[Mapping[str, object]]) -> datetime:
+    latest = created_at
+    for comment in comments:
+        if "<!-- egregore-stall:" in str(comment.get("body") or ""):
+            continue
+        stamp = try_parse_time(str(comment.get("created_at") or ""))
+        if stamp is not None and stamp > latest:
+            latest = stamp
+    return latest
+
+
+def stall_stretch_noted(comments: Sequence[Mapping[str, object]], stamp: str) -> bool:
+    """True when this idle timestamp is already flagged, whatever the reason was."""
+    for comment in comments:
+        for match in STALL_STAMP_RE.finditer(str(comment.get("body") or "")):
+            if match.group(1) == stamp:
+                return True
+    return False
+
+
+def stall_plan(
+    labels: Sequence[str],
+    created_at: datetime | None,
+    comments: Sequence[Mapping[str, object]],
+    now: datetime,
+    *,
+    lease_active: bool,
+) -> tuple[str | None, bool]:
+    """One comment per idle stretch, and stall:flagged when that label is absent.
+
+    The comment is None when this stretch is already flagged. The marker is the
+    activity timestamp, so a later label change does not open a new stretch.
+    The bool is whether to add stall:flagged. A live lease is not idle.
+    """
+    if lease_active or created_at is None:
+        return None, False
+    reason = stall_reason(labels)
+    if reason is None:
+        return None, False
+    activity = latest_unstalled_activity(created_at, comments)
+    if now - activity < STALL_AFTER:
+        return None, False
+    stamp = activity.strftime("%Y-%m-%dT%H:%M:%SZ")
+    marker = f"<!-- egregore-stall:{stamp} -->"
+    already = stall_stretch_noted(comments, stamp)
+    add_label = STALL_LABEL not in set(labels)
+    if already:
+        return None, add_label
+    lines = [
+        marker,
+        "",
+        f"Stall flag. This issue has had no newer comment since {stamp}.",
+        f"Reason: {reason}.",
+        "This workflow does not claim the issue. One flag per idle stretch.",
+        "A newer comment starts a new stretch.",
+    ]
+    return "\n".join(lines) + "\n", add_label
+
+
+def open_task_titles(repo: str) -> list[tuple[int, str]]:
+    payload = gh_json(
+        ["--paginate", "--method", "GET", f"repos/{repo}/issues", "-f", "state=open", "-f", "per_page=100"]
+    )
+    if not isinstance(payload, list):
+        raise GhError("unexpected issues payload")
+    found: list[tuple[int, str]] = []
+    for issue in payload:
+        if not isinstance(issue, dict) or is_pull_request(issue):
+            continue
+        title = str(issue.get("title") or "")
+        if kind_from_title(title) != "task":
+            continue
+        number = issue.get("number")
+        if isinstance(number, int):
+            found.append((number, title))
+    return found
+
+
 def sync_hygiene_labels(repo: str, number: int, labels: Sequence[object], check: IssueCheck) -> list[str]:
     names = set(label_names(list(labels)))
     add: list[str] = []
@@ -771,7 +991,34 @@ def cmd_check_issue(apply: bool, title: str | None, body_file: str | None) -> in
         issue = gh_json(["--method", "GET", f"repos/{repo}/issues/{number}"])
         if not isinstance(issue, dict):
             raise SystemExit("unexpected issue payload")
-        check = validate_issue(str(issue.get("title") or ""), str(issue.get("body") or ""))
+        title_text = str(issue.get("title") or "")
+        body_text = str(issue.get("body") or "")
+        labels = label_names(issue.get("labels") or [])
+        check = validate_issue(title_text, body_text)
+        closed = str(issue.get("state") or "").lower() == "closed"
+        extra: list[str] = []
+        if not closed and kind_from_title(title_text) == "task":
+            extra.extend(duplicate_task_problems(title_text, open_task_titles(repo), number=number))
+        mode = closed_status_mode()
+        if closed:
+            _ignored, message = closed_task_plan(title_text, labels, closed=True, mode=mode)
+            if message:
+                extra.append(message)
+
+        def apply_plan(plan: LabelPlan | None) -> None:
+            if plan is None or (not plan.add and not plan.remove):
+                return
+            for warning in apply_label_changes(repo, number, plan.add, plan.remove):
+                print(warning, file=sys.stderr)
+            for name in plan.remove:
+                while name in labels:
+                    labels.remove(name)
+            for name in plan.add:
+                if name not in labels:
+                    labels.append(name)
+
+        apply_plan(form_label_updates(title_text, body_text, labels))
+        check = with_problems(check, extra)
         should_note = (not check.ok) or check.needs_owner
         existing = gh_json(
             ["--paginate", "--method", "GET", f"repos/{repo}/issues/{number}/comments", "-f", "per_page=100"]
@@ -786,9 +1033,15 @@ def cmd_check_issue(apply: bool, title: str | None, body_file: str | None) -> in
                 HYGIENE_MARKER,
                 render_hygiene_comment(check, passed=check.ok and not check.needs_owner),
             )
-        warnings = sync_hygiene_labels(repo, number, issue.get("labels") or [], check)
-        for warning in warnings:
+        for warning in sync_hygiene_labels(repo, number, labels, check):
             print(warning, file=sys.stderr)
+        if check.needs_owner and "status:needs-owner" not in labels:
+            labels.append("status:needs-owner")
+        if check.needs_owner and "status:ready" in labels:
+            labels.remove("status:ready")
+        if closed and mode != "flag":
+            done_plan, _message = closed_task_plan(title_text, labels, closed=True, mode=mode)
+            apply_plan(done_plan)
         return 0
 
     if body_file:
@@ -801,20 +1054,48 @@ def cmd_check_issue(apply: bool, title: str | None, body_file: str | None) -> in
     return 0 if check.ok else 1
 
 
+def lease_watch_run_class(
+    *,
+    active: int,
+    expired: int,
+    conflicts_warned: int,
+    stalls_flagged: int,
+) -> str:
+    """One class per run. Conflict outranks expiry, which outranks a new stall flag."""
+    if conflicts_warned:
+        return "conflict"
+    if expired:
+        return "expired"
+    if stalls_flagged:
+        return "stall"
+    if active:
+        return "active"
+    return "no-op"
+
+
 def lease_watch_summary_line(
     *,
     scanned: int,
     active: int,
     expired: int,
     conflicts_warned: int,
+    stalls_flagged: int = 0,
 ) -> str:
     """One audit line for every lease-watch run, including an all-active run."""
+    run_class = lease_watch_run_class(
+        active=active,
+        expired=expired,
+        conflicts_warned=conflicts_warned,
+        stalls_flagged=stalls_flagged,
+    )
     return (
         "lease-watch: "
+        f"run {run_class}, "
         f"issues scanned {scanned}, "
         f"active {active}, "
         f"expired {expired}, "
-        f"conflicts warned {conflicts_warned}"
+        f"conflicts warned {conflicts_warned}, "
+        f"stalls flagged {stalls_flagged}"
     )
 
 
@@ -834,6 +1115,7 @@ def cmd_check_leases(apply: bool, now_value: str | None) -> int:
     active = 0
     expired = 0
     conflicts_warned = 0
+    stalls_flagged = 0
     for issue in issues:
         if not isinstance(issue, dict) or is_pull_request(issue):
             continue
@@ -858,26 +1140,53 @@ def cmd_check_leases(apply: bool, now_value: str | None) -> int:
                 active += 1
             elif state.status == "expired":
                 expired += 1
+            posted_at = now.strftime("%Y-%m-%dT%H:%M:%SZ")
             if conflict_comment_needed(comments, state):
+                conflict_body = lease_conflict_comment(state)
                 gh_json(
                     ["--method", "POST", f"repos/{repo}/issues/{number}/comments", "--input", "-"],
-                    {"body": lease_conflict_comment(state)},
+                    {"body": conflict_body},
                 )
+                comments.append({"body": conflict_body, "created_at": posted_at})
                 conflicts_warned += 1
             plan = lease_label_plan(labels, state)
-            if plan is None:
-                continue
-            marker = f"<!-- egregore-lease:{plan.marker} -->"
-            if not any(marker in str(comment.get("body") or "") for comment in comments):
+            working = list(labels)
+            if plan is not None:
+                marker = f"<!-- egregore-lease:{plan.marker} -->"
+                if not any(marker in str(comment.get("body") or "") for comment in comments):
+                    backstop = lease_comment(state)
+                    gh_json(
+                        ["--method", "POST", f"repos/{repo}/issues/{number}/comments", "--input", "-"],
+                        {"body": backstop},
+                    )
+                    comments.append({"body": backstop, "created_at": posted_at})
+                if plan.add or plan.remove:
+                    warnings = apply_label_changes(repo, int(number), plan.add, plan.remove)
+                    for warning in warnings:
+                        print(f"issue {number}: {warning}", file=sys.stderr)
+                for name in plan.remove:
+                    if name in working:
+                        working.remove(name)
+                for name in plan.add:
+                    if name not in working:
+                        working.append(name)
+                print(f"issue {number}: {state.status}", file=sys.stderr)
+            stall_body, add_stall = stall_plan(
+                working,
+                try_parse_time(str(issue.get("created_at") or "")),
+                comments,
+                now,
+                lease_active=state.status == "active",
+            )
+            if stall_body:
                 gh_json(
                     ["--method", "POST", f"repos/{repo}/issues/{number}/comments", "--input", "-"],
-                    {"body": lease_comment(state)},
+                    {"body": stall_body},
                 )
-            if plan.add or plan.remove:
-                warnings = apply_label_changes(repo, int(number), plan.add, plan.remove)
-                for warning in warnings:
+                stalls_flagged += 1
+            if add_stall:
+                for warning in apply_label_changes(repo, int(number), [STALL_LABEL], []):
                     print(f"issue {number}: {warning}", file=sys.stderr)
-            print(f"issue {number}: {state.status}", file=sys.stderr)
         except (GhError, ValueError) as err:
             failed = True
             message = err.message if isinstance(err, GhError) else "invalid lease data"
@@ -888,6 +1197,7 @@ def cmd_check_leases(apply: bool, now_value: str | None) -> int:
             active=active,
             expired=expired,
             conflicts_warned=conflicts_warned,
+            stalls_flagged=stalls_flagged,
         ),
         file=sys.stderr,
     )

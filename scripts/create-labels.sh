@@ -66,6 +66,7 @@ label "status:needs-owner" "BC4C00" "Waiting for Aaron"
 label "status:done" "57606A" "Finished and recorded"
 
 label "lease:expired" "BD561D" "Lease lapsed while the issue looked active"
+label "stall:flagged" "D4A72C" "Idle needs-review, handoff, or needs-owner. One flag per stretch."
 
 label "agent:chatgpt" "0550AE" "Planning, analysis, and coordination"
 label "agent:grokbot" "0550AE" "Research, investigation, delegation, tracking"
