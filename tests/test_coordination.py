@@ -279,6 +279,132 @@ class LeaseTests(unittest.TestCase):
         self.assertEqual(coord.current_lease_conflicts(renewed.conflicts), ())
         self.assertEqual(coord.lease_conflict_marker(taken), coord.lease_conflict_marker(renewed))
         self.assertNotEqual(taken.expires, renewed.expires)
+        self.assertEqual(taken.lease_id, "4")
+        self.assertEqual(renewed.lease_id, taken.lease_id)
+
+    def test_renewals_within_one_lease_do_not_rewarn(self) -> None:
+        created = NOW - timedelta(hours=2)
+        claim = self.claim("cursor", created, NOW + timedelta(hours=1), 21)
+        overlap = self.claim("codex", created + timedelta(minutes=4), NOW + timedelta(minutes=30), 22)
+        first = coord.assess_lease([claim, overlap], NOW)
+        self.assertEqual(first.lease_id, "21")
+        self.assertTrue(coord.conflict_comment_needed([claim, overlap], first))
+
+        warned = comment(coord.lease_conflict_comment(first), NOW - timedelta(minutes=50), 23)
+        first_expiry = NOW + timedelta(hours=3)
+        renewal = comment(f"Lease-Expires: {iso(first_expiry)}\n", NOW - timedelta(minutes=40), 24)
+        once = [claim, overlap, warned, renewal]
+        extended = coord.assess_lease(once, NOW)
+        self.assertEqual(extended.lease_id, "21")
+        self.assertEqual(extended.expires, first_expiry)
+        self.assertEqual(coord.lease_conflict_marker(extended), coord.lease_conflict_marker(first))
+        self.assertFalse(coord.conflict_comment_needed(once, extended))
+
+        second_expiry = NOW + timedelta(hours=5)
+        again = comment(f"Lease-Expires: {iso(second_expiry)}\n", NOW - timedelta(minutes=20), 25)
+        twice = once + [again]
+        renewed = coord.assess_lease(twice, NOW)
+        self.assertEqual(renewed.lease_id, "21")
+        self.assertEqual(renewed.agent, "cursor")
+        self.assertEqual(renewed.expires, second_expiry)
+        self.assertEqual(coord.lease_conflict_marker(renewed), coord.lease_conflict_marker(first))
+        self.assertFalse(coord.conflict_comment_needed(twice, renewed))
+
+    def test_new_lease_overlap_is_not_suppressed_by_an_older_warning(self) -> None:
+        created = NOW - timedelta(hours=3)
+        claim = self.claim("cursor", created, NOW + timedelta(hours=4), 11)
+        overlap = self.claim("codex", created + timedelta(minutes=5), NOW + timedelta(hours=1), 12)
+        first = coord.assess_lease([claim, overlap], NOW)
+        warned = comment(coord.lease_conflict_comment(first), NOW - timedelta(minutes=40), 13)
+        release = comment("Lease-Release: cursor\n", NOW - timedelta(minutes=25), 14)
+        reclaim = self.claim("cursor", NOW - timedelta(minutes=20), NOW + timedelta(hours=3), 15)
+        quiet_comments = [claim, overlap, warned, release, reclaim]
+        quiet = coord.assess_lease(quiet_comments, NOW)
+        self.assertEqual(quiet.lease_id, "15")
+        self.assertEqual(quiet.conflicts, ())
+        self.assertFalse(coord.conflict_comment_needed(quiet_comments, quiet))
+
+        again = self.claim("codex", NOW - timedelta(minutes=10), NOW + timedelta(hours=1), 16)
+        comments = quiet_comments + [again]
+        state = coord.assess_lease(comments, NOW)
+        self.assertEqual(state.status, "active")
+        self.assertEqual(state.agent, "cursor")
+        self.assertEqual(state.lease_id, "15")
+        self.assertNotEqual(state.lease_id, first.lease_id)
+        self.assertTrue(any("overlapping claim by codex" in item for item in state.conflicts))
+        self.assertTrue(coord.conflict_comment_needed(comments, state))
+        self.assertNotEqual(coord.lease_conflict_marker(state), coord.lease_conflict_marker(first))
+        self.assertNotIn(coord.lease_conflict_marker(state), warned["body"])
+
+        earlier = NOW - timedelta(hours=3)
+        old_claim = self.claim("cursor", earlier - timedelta(hours=2), earlier + timedelta(hours=2), 41)
+        old_overlap = self.claim(
+            "codex",
+            earlier - timedelta(hours=2) + timedelta(minutes=5),
+            earlier + timedelta(hours=1),
+            42,
+        )
+        active = coord.assess_lease([old_claim, old_overlap], earlier)
+        self.assertEqual(active.status, "active")
+        self.assertEqual(active.lease_id, "41")
+        old_warning = comment(coord.lease_conflict_comment(active), earlier + timedelta(minutes=10), 43)
+        expired = coord.assess_lease([old_claim, old_overlap, old_warning], NOW)
+        self.assertEqual(expired.status, "expired")
+        self.assertEqual(expired.lease_id, "41")
+        new_claim = self.claim("cursor", NOW - timedelta(minutes=30), NOW + timedelta(hours=3), 44)
+        new_overlap = self.claim("codex", NOW - timedelta(minutes=20), NOW + timedelta(hours=1), 45)
+        revived_comments = [old_claim, old_overlap, old_warning, new_claim, new_overlap]
+        revived = coord.assess_lease(revived_comments, NOW)
+        self.assertEqual(revived.status, "active")
+        self.assertEqual(revived.agent, "cursor")
+        self.assertEqual(revived.lease_id, "44")
+        self.assertTrue(coord.conflict_comment_needed(revived_comments, revived))
+        self.assertNotIn(coord.lease_conflict_marker(revived), old_warning["body"])
+
+    def test_overlong_overlap_does_not_take_a_live_lease(self) -> None:
+        created = NOW - timedelta(hours=1)
+        holder = self.claim("cursor", created, NOW + timedelta(hours=4), 1)
+        other = self.claim(
+            "codex",
+            created + timedelta(minutes=5),
+            created + timedelta(minutes=5) + timedelta(hours=25),
+            2,
+        )
+        state = coord.assess_lease([holder, other], NOW)
+        self.assertEqual(state.status, "active")
+        self.assertEqual(state.agent, "cursor")
+        self.assertEqual(state.expires, NOW + timedelta(hours=4))
+        self.assertEqual(state.lease_id, "1")
+        self.assertIn("ignored overlapping claim by codex while cursor holds the lease", state.conflicts)
+        self.assertTrue(coord.conflict_comment_needed([holder, other], state))
+
+        renewal_at = NOW - timedelta(minutes=10)
+        too_long = comment(
+            f"Lease-Expires: {iso(renewal_at + timedelta(hours=24, seconds=1))}\n",
+            renewal_at,
+            3,
+        )
+        kept = coord.assess_lease([holder, too_long], NOW)
+        self.assertEqual(kept.agent, "cursor")
+        self.assertEqual(kept.expires, NOW + timedelta(hours=4))
+        self.assertEqual(kept.lease_id, "1")
+        self.assertTrue(any("longer than 24 hours" in item for item in kept.conflicts))
+
+    def test_later_lease_with_the_same_expiry_is_a_separate_backstop(self) -> None:
+        expiry = NOW
+        first = self.claim("cursor", NOW - timedelta(hours=5), expiry, 51)
+        release = comment("Lease-Release: cursor\n", NOW - timedelta(hours=3), 52)
+        second = self.claim("cursor", NOW - timedelta(hours=2), expiry, 53)
+        only = coord.assess_lease([first], NOW)
+        both = coord.assess_lease([first, release, second], NOW)
+        self.assertEqual(only.status, "expired")
+        self.assertEqual(both.status, "expired")
+        self.assertEqual(only.lease_id, "51")
+        self.assertEqual(both.lease_id, "53")
+        self.assertNotEqual(only.marker, both.marker)
+        old_note = coord.lease_comment(only)
+        self.assertIn(f"<!-- egregore-lease:{only.marker} -->", old_note)
+        self.assertNotIn(f"<!-- egregore-lease:{both.marker} -->", old_note)
 
     def test_invalid_calendar_timestamp_does_not_abort_the_rest(self) -> None:
         created = NOW - timedelta(hours=1)

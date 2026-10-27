@@ -110,11 +110,18 @@ class IssueCheck:
 
 @dataclass(frozen=True)
 class LeaseState:
+    """The lease that is current after reading the thread.
+
+    lease_id is the comment id of the claim that started this hold. Renewals
+    keep it. A later hold, after release or expiry, gets a new one.
+    """
+
     status: str
     agent: str | None
     expires: datetime | None
     marker: str
     conflicts: tuple[str, ...] = ()
+    lease_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -349,6 +356,10 @@ def render_hygiene_comment(check: IssueCheck, *, passed: bool = False) -> str:
     return "\n".join(lines) + "\n"
 
 
+def holder_is_live(agent: str | None, expires: datetime | None, at: datetime) -> bool:
+    return bool(agent) and expires is not None and expires > at
+
+
 def current_lease_conflicts(conflicts: Sequence[str]) -> tuple[str, ...]:
     """Overlap and foreign-release notes that still apply to the live holder."""
     return tuple(item for item in conflicts if " holds the lease" in item)
@@ -362,15 +373,17 @@ def without_previous_holder_conflicts(conflicts: list[str]) -> list[str]:
 def assess_lease(comments: Sequence[Mapping[str, object]], now: datetime) -> LeaseState:
     """The earliest live claim holds. A later agent does not take an unexpired lease.
 
-    Renewal by the same agent updates that holder's expiry and keeps warnings
-    about that same live lease. After the holder releases, or after that lease
-    ends, the next valid claim starts a new hold and does not inherit those
-    warnings. Comment order is GitHub's receipt order. It is not a lock.
+    Renewal by the same agent updates that holder's expiry and keeps the
+    accepted claim's id and its warnings. After the holder releases, or after
+    that lease ends, the next valid claim starts a new hold with a new id and
+    does not inherit those warnings. Comment order is GitHub's receipt order.
+    It is not a lock.
     """
     if now.tzinfo is None:
         raise ValueError("now must be timezone-aware")
     holder_agent: str | None = None
     holder_expires: datetime | None = None
+    lease_id: str | None = None
     release_id = "none"
     conflicts: list[str] = []
     saw_invalid = False
@@ -397,16 +410,12 @@ def assess_lease(comments: Sequence[Mapping[str, object]], now: datetime) -> Lea
             release = RELEASE_RE.match(line)
             if release:
                 who = release.group(1).lower()
-                if (
-                    holder_agent
-                    and holder_expires is not None
-                    and holder_expires > created
-                    and who != holder_agent
-                ):
+                if holder_is_live(holder_agent, holder_expires, created) and who != holder_agent:
                     conflicts.append(f"ignored release by {who} while {holder_agent} holds the lease")
                     continue
                 holder_agent = None
                 holder_expires = None
+                lease_id = None
                 release_id = comment_id
                 saw_release = True
                 conflicts = without_previous_holder_conflicts(conflicts)
@@ -429,30 +438,24 @@ def assess_lease(comments: Sequence[Mapping[str, object]], now: datetime) -> Lea
                 saw_invalid = True
                 conflicts.append("ignored lease with no known Claim-Agent")
                 continue
-            if exp - created > MAX_LEASE:
-                saw_too_long = True
-                conflicts.append(f"ignored lease by {agent} longer than 24 hours")
-                continue
-            if (
-                holder_agent
-                and holder_expires is not None
-                and holder_expires > created
-                and agent != holder_agent
-            ):
+            # A different agent does not take a live lease, even with a term
+            # longer than 24 hours. Length is checked only for a claim that
+            # would otherwise become the hold.
+            if holder_is_live(holder_agent, holder_expires, created) and agent != holder_agent:
                 conflicts.append(
                     f"ignored overlapping claim by {agent} while {holder_agent} holds the lease"
                 )
                 continue
-            # A same-agent renewal of an unexpired lease keeps that lease's
-            # warnings. Any other accepted claim is a new hold.
-            live_renewal = (
-                holder_agent is not None
-                and holder_expires is not None
-                and holder_expires > created
-                and agent == holder_agent
-            )
+            if exp - created > MAX_LEASE:
+                saw_too_long = True
+                conflicts.append(f"ignored lease by {agent} longer than 24 hours")
+                continue
+            # A same-agent renewal of an unexpired lease keeps that claim's id
+            # and its warnings. Any other accepted claim is a new hold.
+            live_renewal = holder_is_live(holder_agent, holder_expires, created) and agent == holder_agent
             if not live_renewal:
                 conflicts = without_previous_holder_conflicts(conflicts)
+                lease_id = comment_id
             holder_agent = agent
             holder_expires = exp
             saw_release = False
@@ -461,9 +464,12 @@ def assess_lease(comments: Sequence[Mapping[str, object]], now: datetime) -> Lea
     if holder_agent and holder_expires is not None:
         stamp = holder_expires.strftime("%Y-%m-%dT%H:%M:%SZ")
         suffix = f":c{len(recorded)}" if recorded else ""
+        identity = lease_id or "none"
         if holder_expires <= now:
-            return LeaseState("expired", holder_agent, holder_expires, f"expired:{stamp}{suffix}", recorded)
-        return LeaseState("active", holder_agent, holder_expires, f"active:{stamp}{suffix}", recorded)
+            marker = f"expired:{identity}:{stamp}{suffix}"
+            return LeaseState("expired", holder_agent, holder_expires, marker, recorded, lease_id)
+        marker = f"active:{identity}:{stamp}{suffix}"
+        return LeaseState("active", holder_agent, holder_expires, marker, recorded, lease_id)
     if saw_release:
         return LeaseState("released", None, None, f"released:{release_id}", recorded)
     if saw_invalid and not saw_too_long:
@@ -529,9 +535,26 @@ def lease_comment(state: LeaseState) -> str:
 
 
 def lease_conflict_marker(state: LeaseState) -> str:
-    """Identity of the live overlap set. A renewal changes the expiry, not this."""
+    """Dedup key for one hold. Renewals keep the claim id; a later hold does not."""
     relevant = current_lease_conflicts(state.conflicts)
-    return "<!-- egregore-lease-conflict:" + (state.agent or "") + ":" + " | ".join(relevant) + " -->"
+    identity = state.lease_id or "none"
+    return (
+        "<!-- egregore-lease-conflict:"
+        + identity
+        + ":"
+        + (state.agent or "")
+        + ":"
+        + " | ".join(relevant)
+        + " -->"
+    )
+
+
+def conflict_comment_needed(comments: Sequence[Mapping[str, object]], state: LeaseState) -> bool:
+    """True when this hold's overlap is not already noted in the thread."""
+    if state.status != "active" or not current_lease_conflicts(state.conflicts):
+        return False
+    marker = lease_conflict_marker(state)
+    return not any(marker in str(comment.get("body") or "") for comment in comments)
 
 
 def lease_conflict_comment(state: LeaseState) -> str:
@@ -805,13 +828,11 @@ def cmd_check_leases(apply: bool, now_value: str | None) -> int:
             if not isinstance(comments, list):
                 raise GhError("unexpected comments payload")
             state = assess_lease(comments, now)
-            if current_lease_conflicts(state.conflicts) and state.status == "active":
-                conflict_marker = lease_conflict_marker(state)
-                if not any(conflict_marker in str(comment.get("body") or "") for comment in comments):
-                    gh_json(
-                        ["--method", "POST", f"repos/{repo}/issues/{number}/comments", "--input", "-"],
-                        {"body": lease_conflict_comment(state)},
-                    )
+            if conflict_comment_needed(comments, state):
+                gh_json(
+                    ["--method", "POST", f"repos/{repo}/issues/{number}/comments", "--input", "-"],
+                    {"body": lease_conflict_comment(state)},
+                )
             plan = lease_label_plan(labels, state)
             if plan is None:
                 continue
