@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import re
@@ -10,8 +11,10 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -147,6 +150,54 @@ class IssueValidationTests(unittest.TestCase):
     def test_placeholder_counts_as_empty(self) -> None:
         check = coord.validate_issue("[Task]: Docs", issue_body(task_fields(Outcome="_No response_")))
         self.assertIn("Outcome is empty.", check.problems)
+
+    def test_hygiene_comment_has_no_blank_list_when_nothing_is_wrong_but_owner_is_needed(self) -> None:
+        fields = {
+            "Project": "weather-intelligence",
+            "Decision type": "credentials",
+            "Request": "Allow Codex to see the repo.",
+            "Why Aaron": "It changes access.",
+        }
+        check = coord.validate_issue("[Decision]: Repo access", issue_body(fields))
+        self.assertTrue(check.ok)
+        self.assertTrue(check.needs_owner)
+        self.assertEqual(check.problems, ())
+        comment_body = coord.render_hygiene_comment(check)
+        self.assertEqual(
+            comment_body,
+            "\n".join(
+                [
+                    coord.HYGIENE_MARKER,
+                    "",
+                    "This issue needs Aaron before anyone continues. Filing it does not grant the request.",
+                    "",
+                    "GitHub does not block the issue on this comment. Edit the issue to update the record.",
+                    "",
+                    "This comment is the issue-hygiene workflow. It is not an agent claim.",
+                ]
+            )
+            + "\n",
+        )
+        self.assertNotIn("found problems:", comment_body)
+        self.assertNotIn("\n\n\n", comment_body)
+
+    def test_hygiene_comment_keeps_a_problem_list_and_separates_the_owner_note(self) -> None:
+        check = coord.IssueCheck(
+            ok=False,
+            kind="task",
+            problems=("Outcome is empty.",),
+            needs_owner=True,
+            secret=False,
+        )
+        comment_body = coord.render_hygiene_comment(check)
+        self.assertIn("Coordination field check found problems:\n\n- Outcome is empty.", comment_body)
+        self.assertIn(
+            "- Outcome is empty.\n\nThis issue needs Aaron before anyone continues.",
+            comment_body,
+        )
+        self.assertNotIn("- Outcome is empty.\n\n\n", comment_body)
+        self.assertNotRegex(comment_body, r"(?m)^-\s*$")
+        self.assertNotIn("\n\n\n", comment_body)
 
 
 class LeaseTests(unittest.TestCase):
@@ -517,6 +568,109 @@ class DecisionTests(unittest.TestCase):
         state = coord.assess_lease([claim, note], NOW)
         self.assertEqual(state.status, "active")
         self.assertEqual(state.agent, "cursor")
+
+
+class LeaseWatchSummaryTests(unittest.TestCase):
+    def claim(self, agent: str, created: datetime, expires: datetime, comment_id: int) -> dict[str, object]:
+        body = f"Claim-Agent: {agent}\nLease-Expires: {iso(expires)}\n"
+        return comment(body, created, comment_id)
+
+    def run_watch(
+        self,
+        issues: list[dict[str, object]],
+        comments_by_number: dict[int, list[dict[str, object]]],
+    ) -> tuple[int, str, list[tuple[str, object]]]:
+        posts: list[tuple[str, object]] = []
+
+        def fake_gh(args: list[str], payload: dict[str, object] | None = None) -> object:
+            path = next(arg for arg in args if arg.startswith("repos/"))
+            method = args[args.index("--method") + 1]
+            if method == "GET" and path.endswith("/issues"):
+                return issues
+            if method == "GET" and path.endswith("/comments"):
+                number = int(path.split("/")[4])
+                return list(comments_by_number[number])
+            if method == "POST" and path.endswith("/comments"):
+                posts.append((path, payload))
+                return {}
+            if method in {"POST", "DELETE"} and "/labels" in path:
+                return {}
+            raise AssertionError((method, path))
+
+        with patch.object(coord, "gh_json", fake_gh), patch.dict(
+            os.environ, {"GITHUB_REPOSITORY": "AStrasler/Egeregore"}
+        ):
+            captured = io.StringIO()
+            with redirect_stderr(captured):
+                code = coord.cmd_check_leases(True, iso(NOW))
+        return code, captured.getvalue(), posts
+
+    def test_summary_line_names_the_four_counts(self) -> None:
+        line = coord.lease_watch_summary_line(scanned=4, active=2, expired=1, conflicts_warned=1)
+        self.assertEqual(
+            line,
+            "lease-watch: issues scanned 4, active 2, expired 1, conflicts warned 1",
+        )
+        self.assertNotIn("\n", line)
+
+    def test_active_only_run_logs_a_one_line_summary(self) -> None:
+        created = NOW - timedelta(hours=1)
+        issues = [
+            {"number": 7, "labels": [{"name": "status:in-progress"}, {"name": "agent:cursor"}]},
+        ]
+        comments = {
+            7: [self.claim("cursor", created, NOW + timedelta(hours=4), 1)],
+        }
+        code, log, posts = self.run_watch(issues, comments)
+        self.assertEqual(code, 0)
+        self.assertEqual(posts, [])
+        self.assertEqual(
+            log,
+            "lease-watch: issues scanned 1, active 1, expired 0, conflicts warned 0\n",
+        )
+
+    def test_summary_counts_scans_active_expired_and_new_conflict_warnings(self) -> None:
+        created = NOW - timedelta(hours=2)
+        active = self.claim("cursor", created, NOW + timedelta(hours=4), 1)
+        overlap_holder = self.claim("chatgpt", created, NOW + timedelta(hours=5), 2)
+        overlap_other = self.claim("cursor", created + timedelta(minutes=5), NOW + timedelta(hours=3), 3)
+        already = coord.assess_lease([overlap_holder, overlap_other], NOW)
+        noted = comment(coord.lease_conflict_marker(already) + "\n", NOW - timedelta(minutes=10), 4)
+        issues = [
+            {"number": 11, "labels": [{"name": "status:claimed"}]},
+            {"number": 12, "labels": [{"name": "status:claimed"}]},
+            {"number": 13, "labels": [{"name": "status:in-progress"}]},
+            {"number": 14, "pull_request": {"url": "https://example.test/pull/14"}},
+            {"number": 15, "labels": [{"name": "status:ready"}]},
+            {
+                "number": 16,
+                "labels": [{"name": "status:claimed"}],
+            },
+        ]
+        comments = {
+            11: [active],
+            12: [self.claim("cursor", created, NOW - timedelta(minutes=1), 5)],
+            13: [overlap_holder, overlap_other],
+            15: [],
+            16: [overlap_holder, overlap_other, noted],
+        }
+        code, log, posts = self.run_watch(issues, comments)
+        self.assertEqual(code, 0)
+        conflict_posts = [
+            payload
+            for _path, payload in posts
+            if isinstance(payload, dict) and "Overlapping claim ignored." in str(payload.get("body"))
+        ]
+        self.assertEqual(len(conflict_posts), 1)
+        self.assertIn("issue 12: expired", log)
+        self.assertNotIn("issue 11:", log)
+        self.assertNotIn("issue 13:", log)
+        self.assertNotIn("issue 16:", log)
+        self.assertTrue(
+            log.endswith(
+                "lease-watch: issues scanned 5, active 3, expired 1, conflicts warned 1\n"
+            )
+        )
 
 
 class CliTests(unittest.TestCase):

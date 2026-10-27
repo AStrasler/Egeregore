@@ -345,7 +345,11 @@ def render_hygiene_comment(check: IssueCheck, *, passed: bool = False) -> str:
             for problem in check.problems:
                 lines.append(f"- {problem}")
         if check.needs_owner:
-            lines.append("")
+            # A blank line separates a problem list from the next paragraph.
+            # With nothing to list, that blank line is a stray gap (seen on a
+            # needs-owner issue that had no field problems).
+            if check.problems:
+                lines.append("")
             lines.append(
                 "This issue needs Aaron before anyone continues. Filing it does not grant the request."
             )
@@ -797,6 +801,23 @@ def cmd_check_issue(apply: bool, title: str | None, body_file: str | None) -> in
     return 0 if check.ok else 1
 
 
+def lease_watch_summary_line(
+    *,
+    scanned: int,
+    active: int,
+    expired: int,
+    conflicts_warned: int,
+) -> str:
+    """One audit line for every lease-watch run, including an all-active run."""
+    return (
+        "lease-watch: "
+        f"issues scanned {scanned}, "
+        f"active {active}, "
+        f"expired {expired}, "
+        f"conflicts warned {conflicts_warned}"
+    )
+
+
 def cmd_check_leases(apply: bool, now_value: str | None) -> int:
     if not apply:
         print("check-leases only runs with --apply", file=sys.stderr)
@@ -809,10 +830,15 @@ def cmd_check_leases(apply: bool, now_value: str | None) -> int:
     if not isinstance(issues, list):
         raise SystemExit("unexpected issues payload")
     failed = False
+    scanned = 0
+    active = 0
+    expired = 0
+    conflicts_warned = 0
     for issue in issues:
         if not isinstance(issue, dict) or is_pull_request(issue):
             continue
         number = issue.get("number")
+        scanned += 1
         try:
             labels = label_names(issue.get("labels") or [])
             comments = gh_json(
@@ -828,11 +854,16 @@ def cmd_check_leases(apply: bool, now_value: str | None) -> int:
             if not isinstance(comments, list):
                 raise GhError("unexpected comments payload")
             state = assess_lease(comments, now)
+            if state.status == "active":
+                active += 1
+            elif state.status == "expired":
+                expired += 1
             if conflict_comment_needed(comments, state):
                 gh_json(
                     ["--method", "POST", f"repos/{repo}/issues/{number}/comments", "--input", "-"],
                     {"body": lease_conflict_comment(state)},
                 )
+                conflicts_warned += 1
             plan = lease_label_plan(labels, state)
             if plan is None:
                 continue
@@ -851,6 +882,15 @@ def cmd_check_leases(apply: bool, now_value: str | None) -> int:
             failed = True
             message = err.message if isinstance(err, GhError) else "invalid lease data"
             print(f"issue {number}: {message}", file=sys.stderr)
+    print(
+        lease_watch_summary_line(
+            scanned=scanned,
+            active=active,
+            expired=expired,
+            conflicts_warned=conflicts_warned,
+        ),
+        file=sys.stderr,
+    )
     return 1 if failed else 0
 
 
