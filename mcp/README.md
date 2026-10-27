@@ -102,7 +102,11 @@ The review comment is the exception. Codex starts a review when the pull-request
 
 A losing claim also posts the conflict note from `coordination.py`. That note keeps the `egregore-lease-conflict` marker, and this server adds the caller's `Agent:` line in front of it.
 
-`done`, `next`, renewal notes, release reasons, and handoff text are rejected when any line is `Claim-Agent`, `Lease-Expires`, or `Lease-Release`. `assess_lease` reads every line, including lines inside a Markdown fence. A progress note must not be able to release or renew a lease.
+`done`, `next`, renewal notes, release reasons, claim titles, and handoff text quote a line that is `Claim-Agent`, `Lease-Expires`, or `Lease-Release`. The quote is a leading `>`. `assess_lease` strips indentation and still reads lines inside a fence, and the `>` keeps that line from matching. The note is posted. It does not release or renew a lease.
+
+`claim_task` also refuses a body whose `Approval needed` line starts with `yes`, even when `status:needs-owner` is not on the issue yet. That is `validate_issue(...).needs_owner`. Renew, release, progress, and handoff use the same gate.
+
+A handoff's Access field names the repository where the work happens. Coordination stays in this repo. WHOOP Lens stays at `AStrasler/WHOOP-Lens`. Another project keeps a repository URL already written on the task. It does not name this coordination repo in that sentence.
 
 GitHub attributes the comment to the user who owns `EGREGORE_GITHUB_TOKEN`. A token for `@AStrasler` means every agent still posts as `@AStrasler`. The `Agent` line is a role name. It is not a login, and it is not Aaron's approval.
 

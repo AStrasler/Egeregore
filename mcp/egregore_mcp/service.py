@@ -25,12 +25,12 @@ from egregore_mcp.comments import (  # noqa: E402
     REVIEW_COMMENT,
     claim_comment,
     conflict_comment,
-    contains_lease_control,
     handoff_issue_body,
     handoff_note,
     progress_comment,
     release_comment,
     renewal_comment,
+    work_repository,
 )
 from egregore_mcp.github_api import GitHubError, RestGitHub  # noqa: E402
 
@@ -406,12 +406,14 @@ class CoordinationService:
         reason_error = self._required_text(reason, "reason")
         if reason_error:
             return reason_error
+        labels = coord.label_names(issue.get("labels") or [])
+        if self._needs_owner(issue) and "status:needs-owner" not in labels:
+            return err("not_claimable", "This issue is waiting on the owner. release_task did not post.")
         state = coord.assess_lease(comments, self._aware_now())
         holder = state.status == "active" and state.agent == self.agent
         last_holder = state.status == "expired" and state.agent == self.agent
         if not holder and not last_holder:
             return self._not_holding(state)
-        labels = coord.label_names(issue.get("labels") or [])
         if "status:needs-owner" in labels and label != "status:needs-owner":
             return err(
                 "not_claimable",
@@ -500,7 +502,7 @@ class CoordinationService:
             issue_number=issue_number,
             done_so_far=done_so_far,
             next_action=next_action,
-            repo=self.repo,
+            repo=work_repository(project, project_slug, str(issue.get("body") or "")),
             boundary=coord.BOUNDARY_SENTENCE,
         )
         handoff_title = f"[Handoff]: {(title.strip() or str(issue.get('title') or 'next step'))[:120]}"
@@ -735,11 +737,6 @@ class CoordinationService:
             return err("secret_rejected", f"{field} looks like a credential. It was not posted.")
         if coord.decision_verdict(value):
             return err("forbidden", "This server does not record or apply owner decisions.")
-        if contains_lease_control(value):
-            return err(
-                "invalid_input",
-                f"{field} contains a Claim-Agent, Lease-Expires, or Lease-Release line. It was not posted.",
-            )
         return None
 
     def _load(self, issue_number: int) -> tuple[Mapping[str, object], list[dict[str, object]]] | dict[str, object]:
@@ -801,7 +798,11 @@ class CoordinationService:
         labels = coord.label_names(issue.get("labels") or [])
         if "status:needs-owner" in labels:
             return True
-        return coord.kind_from_title(str(issue.get("title") or "")) == "decision"
+        title = str(issue.get("title") or "")
+        if coord.kind_from_title(title) == "decision":
+            return True
+        # Hygiene may not have copied Approval needed: yes onto the label yet.
+        return coord.validate_issue(title, str(issue.get("body") or "")).needs_owner
 
     def _expected_role(self, issue: Mapping[str, object]) -> str | None:
         parsed = coord.sections(str(issue.get("body") or ""))
@@ -817,9 +818,7 @@ class CoordinationService:
         return raw.lower()
 
     def _winning_claim(self, issue_number: int, issue: Mapping[str, object], hours: int) -> dict[str, object]:
-        title = self._task_title(issue, issue_number)
-        if isinstance(title, dict):
-            return title
+        title = str(issue.get("title") or f"#{issue_number}")
         current = self._aware_now()
         body = claim_comment(
             agent=self.agent,
@@ -862,9 +861,7 @@ class CoordinationService:
         hours: int,
         holder: str | None,
     ) -> dict[str, object]:
-        title = self._task_title(issue, issue_number)
-        if isinstance(title, dict):
-            return title
+        title = str(issue.get("title") or f"#{issue_number}")
         current = self._aware_now()
         body = claim_comment(
             agent=self.agent,
@@ -910,15 +907,6 @@ class CoordinationService:
             marker=coord.lease_conflict_marker(state),
             attempt_comment_id=str(posted["id"]),  # type: ignore[index]
         )
-
-    def _task_title(self, issue: Mapping[str, object], number: int) -> str | dict[str, object]:
-        title = str(issue.get("title") or f"#{number}")
-        if contains_lease_control(title):
-            return err(
-                "invalid_input",
-                "The issue title contains a Claim-Agent, Lease-Expires, or Lease-Release line. claim_task did not post.",
-            )
-        return title
 
     def _set_status(
         self,
