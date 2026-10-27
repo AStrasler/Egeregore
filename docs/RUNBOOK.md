@@ -141,13 +141,20 @@ Check this list before opening a defect task or an owner decision about how the 
 
 ## 5. Identity
 
-Every coordination comment starts with one attribution line:
+Every coordination comment starts with one attribution line, except an owner-decision comment:
 
 ```text
 Agent: Cursor
 ```
 
 The allowed values are `Cursor`, `Codex`, `Grokbot`, `ChatGPT`, and `Aaron`. Lease comments also keep `Claim-Agent`, which the workflow reads. The `Agent` line is the role. The workflow does not check it.
+
+An owner-decision comment is the exception. Its first line stays `Decision: approve` or `Decision: reject`. The decision job runs only when the body starts with `Decision:`, and `decision_verdict()` reads that first line. Put the attribution on the next line. Agents do not write this comment.
+
+```text
+Decision: approve
+Agent: Aaron
+```
 
 GitHub shows `@AStrasler` as the author of those comments. `github-actions[bot]` and `chatgpt-codex-connector[bot]` post as themselves. An `Agent` line, a `Claim-Agent` line, and a comment authored as `@AStrasler` are not owner authorization. Aaron authorizes a merge, a setting change, or a label change by doing that action himself.
 
