@@ -782,6 +782,16 @@ class CoordinationService:
         labels = coord.label_names(issue.get("labels") or [])
         if "status:done" in labels:
             return err("not_claimable", "This issue is already done.")
+        if "status:blocked" in labels:
+            return err(
+                "not_claimable",
+                "This issue is blocked. claim_task does not clear that. Move it back to status:ready after the unblocker happens.",
+            )
+        if "status:needs-review" in labels:
+            return err(
+                "not_claimable",
+                "This issue is waiting on review. claim_task does not clear that.",
+            )
         role = self._expected_role(issue)
         if role and role != "any" and role != self.agent:
             return err("wrong_role", f"This issue is for {role}.", expected_role=role, agent=self.agent)

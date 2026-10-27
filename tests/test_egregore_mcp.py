@@ -196,29 +196,28 @@ class ServiceTests(unittest.TestCase):
         history = self.cursor.get_task_history(idle)
         self.assertEqual(history["result"]["events"][0]["kind"], "stall")
 
-        claimed = self.cursor.claim_task(idle)
-        self.assertTrue(claimed["ok"], claimed)
-        after = self.cursor.get_task(idle)
-        after_stall = after["result"]["issue"]["stall"]
-        self.assertIsNone(after_stall["reason"])
-        self.assertTrue(after_stall["flagged"])
-        self.assertTrue(after_stall["lease_blocks_flag"])
-        fresh_labels = self.store.label_names(idle)
-        fresh_comments = self.store.list_comments(idle)
-        lease = coord.assess_lease(fresh_comments, NOW)
-        self.assertEqual(lease.status, "active")
+        refused = self.cursor.claim_task(idle)
+        self.assertEqual(refused["error"]["code"], "not_claimable")
+        self.assertEqual(len(self.store.list_comments(idle)), 1)
+        self.assertIn("status:needs-review", self.store.label_names(idle))
+        self.assertNotIn("status:claimed", self.store.label_names(idle))
+
+        held = self.cursor.claim_task(self.number)
+        self.assertTrue(held["ok"], held)
+        ready = self.cursor.get_task(self.number)
+        self.assertIsNone(ready["result"]["issue"]["stall"]["reason"])
+        self.assertTrue(ready["result"]["issue"]["stall"]["lease_blocks_flag"])
+        lease = coord.assess_lease(self.store.list_comments(self.number), NOW)
         self.assertEqual(
             coord.stall_plan(
-                fresh_labels,
+                self.store.label_names(self.number),
                 created,
-                fresh_comments,
+                self.store.list_comments(self.number),
                 NOW,
                 lease_active=lease.status == "active",
             ),
             (None, False),
         )
-        stall_notes = [item for item in fresh_comments if "<!-- egregore-stall:" in str(item["body"])]
-        self.assertEqual(len(stall_notes), 1)
 
         handoff = self.store.seed_issue(
             title="[Handoff]: Review the server",
@@ -248,6 +247,35 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(result["error"]["code"], "invalid_input")
         self.assertEqual(self.store.list_comments(self.number), [])
         self.assertIn("status:ready", self.store.label_names(self.number))
+
+    def test_blocked_and_needs_review_are_not_claimable(self) -> None:
+        blocked = self.store.seed_issue(
+            title="[Task]: Waiting on a credential",
+            body=task_body("cursor"),
+            labels=["type:task", "status:blocked", "project:coordination"],
+        )
+        refused = self.cursor.claim_task(blocked)
+        self.assertEqual(refused["error"]["code"], "not_claimable")
+        self.assertEqual(self.store.list_comments(blocked), [])
+        self.assertEqual(self.store.label_names(blocked), ["type:task", "status:blocked", "project:coordination"])
+
+        review = self.store.seed_issue(
+            title="[Task]: Waiting on review",
+            body=task_body("cursor"),
+            labels=["type:task", "status:needs-review"],
+        )
+        waiting = self.cursor.claim_task(review)
+        self.assertEqual(waiting["error"]["code"], "not_claimable")
+        self.assertEqual(self.store.list_comments(review), [])
+        self.assertIn("status:needs-review", self.store.label_names(review))
+
+        self.cursor.claim_task(self.number, 1)
+        self.clock.when = NOW + timedelta(hours=2)
+        self.assertIn("status:claimed", self.store.label_names(self.number))
+        taken = self.codex.claim_task(self.number, 2)
+        self.assertTrue(taken["ok"], taken)
+        self.assertEqual(taken["result"]["lease"]["agent"], "codex")
+        self.assertIn("status:claimed", self.store.label_names(self.number))
 
     def test_wrong_role_and_owner_gate_do_not_post(self) -> None:
         owned = self.store.seed_issue(
