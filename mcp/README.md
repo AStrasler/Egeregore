@@ -33,7 +33,7 @@ Clients use `http://127.0.0.1:8765/mcp`. `EGREGORE_HTTP_HOST` accepts `127.0.0.1
 | Tool | Effect |
 | --- | --- |
 | `get_tasks` | List issues. Default kind is `task`. Filters: `state`, `kind`, `status`, `project`, `role`, `limit`. |
-| `get_task` | One issue, its form fields, and the current lease. |
+| `get_task` | One issue, its form fields, the current lease, and the stall gate. |
 | `claim_task` | Claim for 1–24 hours. Default 6. The earliest live claim wins. |
 | `renew_lease` | The holder posts a new expiry. The original claim comment id stays. |
 | `release_task` | The holder releases and sets `ready`, `blocked`, `needs-review`, `needs-owner`, or `done`. |
@@ -49,7 +49,9 @@ Error codes: `invalid_input`, `not_found`, `lease_conflict`, `lease_not_holder`,
 
 `lease_conflict` means another agent holds the live lease. The losing claim is stored, labels stay with the holder, and the conflict marker from `coordination.py` names that holder's claim comment id.
 
-`get_owner_decisions` returns `authorization` of `recorded` or `none`. It never returns `verified`. A comment from `@AStrasler` is a recorded note. The server does not change labels from it.
+`get_owner_decisions` returns `authorization` of `recorded` or `none`. It never returns `verified`. A comment from `@AStrasler` is a recorded note. The server does not change labels from it. That matches `decision_plan`: a login records the note and does not authorize a merge, a setting change, or a label move.
+
+`stall` on a task is the same gate lease watch uses. `reason` comes from `stall_reason` (`needs-review`, `handoff`, `needs-owner`, or null). `flagged` is whether `stall:flagged` is already on the issue. `lease_blocks_flag` is true when `assess_lease` says the lease is active, which is when `stall_plan` refuses to flag. These tools do not post `<!-- egregore-stall: -->` and do not add or remove `stall:flagged`. A claim, progress note, or handoff is an ordinary comment, so it counts as newer activity for the next lease-watch run.
 
 `request_review` allows three completed Codex reviews of distinct commits. A fourth request returns `review_limit`. A receipt that already names the current head with no unresolved findings returns `review_current`. Findings on that same head return `review_same_head`. Push a new commit before asking again.
 
@@ -111,12 +113,11 @@ python3 -m unittest discover -s tests -v
 
 Unit tests call the tools with an in-memory GitHub. The protocol test starts the server over stdio, lists the tools, and calls some of them. The two-client test runs Cursor and Codex against that same fake GitHub: Cursor claims, Codex sees the claim and loses a conflicting claim, Cursor posts progress and a handoff, and Codex reads the handoff. CI runs that suite. It does not call the real GitHub API.
 
-## Open pull requests
+## Relationship to main
 
-This branch is based on `main`. It imports `scripts/coordination.py` and does not edit it.
+This branch is rebased on `main` at `0e1e4a2` (pull requests #9 and #11). It imports `scripts/coordination.py` and does not edit it.
 
-- Pull request #11 changes `scripts/coordination.py` (stall notes, label copy, closed-task status). Those helpers are additive. Rebase this branch after #11 merges and rerun the suite if `assess_lease`, `lease_conflict_comment`, `conflict_comment_needed`, `decision_plan`, or `validate_issue` change behavior.
-- Pull request #9 documents the `Agent:` line and the three-review limit, and it also edits `README.md`. This branch edits a different `README.md` sentence. A rebase may still be needed if those hunks meet.
+`assess_lease`, `lease_conflict_comment`, and `conflict_comment_needed` are the claim path. `decision_plan` is the owner-decision path, and its authorization stays `recorded` or `none`. `stall_plan` stays in lease watch. The MCP reads `stall_reason` and the `stall:flagged` label, and it does not flag stalls itself. A live lease is not idle under `stall_plan`.
 
 ## Limits
 

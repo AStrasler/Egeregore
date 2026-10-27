@@ -159,7 +159,75 @@ class ServiceTests(unittest.TestCase):
         self.codex = service_for(self.store, "codex", self.clock)
 
     def test_reuses_coordination_lease_function(self) -> None:
-        self.assertIs(coord.assess_lease, sys.modules["egregore_mcp.service"].coord.assess_lease)
+        library = sys.modules["egregore_mcp.service"].coord
+        self.assertIs(coord.assess_lease, library.assess_lease)
+        self.assertIs(coord.decision_plan, library.decision_plan)
+        self.assertIs(coord.stall_plan, library.stall_plan)
+        self.assertIs(coord.stall_reason, library.stall_reason)
+
+    def test_stall_view_matches_lease_watch_and_does_not_flag(self) -> None:
+        idle = self.store.seed_issue(
+            title="[Task]: Wait for review",
+            body=task_body("cursor"),
+            labels=["type:task", "status:needs-review", "project:coordination"],
+        )
+        created = NOW - timedelta(days=5)
+        labels = self.store.label_names(idle)
+        would_post, would_label = coord.stall_plan(
+            labels, created, [], NOW, lease_active=False
+        )
+        self.assertIsNotNone(would_post)
+        self.assertTrue(would_label)
+        assert would_post is not None
+        self.assertIn("<!-- egregore-stall:", would_post)
+
+        viewed = self.cursor.get_task(idle)
+        self.assertTrue(viewed["ok"], viewed)
+        stall = viewed["result"]["issue"]["stall"]
+        self.assertEqual(stall["reason"], coord.stall_reason(labels))
+        self.assertEqual(stall["reason"], "needs-review")
+        self.assertFalse(stall["flagged"])
+        self.assertFalse(stall["lease_blocks_flag"])
+        self.assertEqual(self.store.list_comments(idle), [])
+        self.assertNotIn(coord.STALL_LABEL, self.store.label_names(idle))
+
+        self.store.create_comment(idle, would_post)
+        self.store.add_labels(idle, [coord.STALL_LABEL])
+        history = self.cursor.get_task_history(idle)
+        self.assertEqual(history["result"]["events"][0]["kind"], "stall")
+
+        claimed = self.cursor.claim_task(idle)
+        self.assertTrue(claimed["ok"], claimed)
+        after = self.cursor.get_task(idle)
+        after_stall = after["result"]["issue"]["stall"]
+        self.assertIsNone(after_stall["reason"])
+        self.assertTrue(after_stall["flagged"])
+        self.assertTrue(after_stall["lease_blocks_flag"])
+        fresh_labels = self.store.label_names(idle)
+        fresh_comments = self.store.list_comments(idle)
+        lease = coord.assess_lease(fresh_comments, NOW)
+        self.assertEqual(lease.status, "active")
+        self.assertEqual(
+            coord.stall_plan(
+                fresh_labels,
+                created,
+                fresh_comments,
+                NOW,
+                lease_active=lease.status == "active",
+            ),
+            (None, False),
+        )
+        stall_notes = [item for item in fresh_comments if "<!-- egregore-stall:" in str(item["body"])]
+        self.assertEqual(len(stall_notes), 1)
+
+        handoff = self.store.seed_issue(
+            title="[Handoff]: Review the server",
+            body="### To\n\ncodex\n",
+            labels=["type:handoff", "status:ready", "agent:codex"],
+        )
+        handed = self.cursor.get_task(handoff)
+        self.assertEqual(handed["result"]["issue"]["stall"]["reason"], "handoff")
+        self.assertFalse(handed["result"]["issue"]["stall"]["lease_blocks_flag"])
 
     def test_claim_sets_labels_and_the_agent_line(self) -> None:
         result = self.cursor.claim_task(self.number)

@@ -202,6 +202,21 @@ def lease_view(state: coord.LeaseState) -> dict[str, object]:
     }
 
 
+def stall_view(labels: Sequence[str], state: coord.LeaseState) -> dict[str, object]:
+    """Read-only mirror of the lease-watch stall gate.
+
+    ``stall_plan`` skips an issue while its lease is active, and ``stall_reason``
+    is empty unless the labels are needs-review, a handoff, or needs-owner
+    (and not done). This server does not post the stall comment or add
+    ``stall:flagged``. Lease watch owns that write.
+    """
+    return {
+        "reason": coord.stall_reason(labels),
+        "flagged": coord.STALL_LABEL in set(labels),
+        "lease_blocks_flag": state.status == "active",
+    }
+
+
 def _author(comment: Mapping[str, object]) -> str:
     user = comment.get("user")
     if isinstance(user, dict):
@@ -215,6 +230,8 @@ def _classify(body: str) -> str:
         return "lease_conflict"
     if any(line.startswith("<!-- egregore-lease:") for line in lines):
         return "lease_backstop"
+    if any("<!-- egregore-stall:" in line for line in lines):
+        return "stall"
     if any(coord.HYGIENE_MARKER in line for line in lines):
         return "hygiene"
     if any(line.startswith("<!-- egregore-decision:") for line in lines):
@@ -942,6 +959,7 @@ class CoordinationService:
             "labels": labels,
             "role": self._expected_role(issue),
             "lease": lease_view(lease),
+            "stall": stall_view(labels, lease),
         }
 
     def _matches(
