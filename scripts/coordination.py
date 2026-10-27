@@ -163,6 +163,13 @@ def parse_time(value: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
+def try_parse_time(value: str) -> datetime | None:
+    try:
+        return parse_time(value)
+    except (ValueError, TypeError):
+        return None
+
+
 def kind_from_title(title: str) -> str | None:
     folded = title.strip().lower()
     prefixes = {
@@ -354,21 +361,27 @@ def assess_lease(comments: Sequence[Mapping[str, object]], now: datetime) -> Lea
     holder_agent: str | None = None
     holder_expires: datetime | None = None
     release_id = "none"
-    carried_agent: str | None = None
     conflicts: list[str] = []
     saw_invalid = False
     saw_too_long = False
     saw_release = False
 
     for index, comment in enumerate(comments):
-        created = parse_time(str(comment["created_at"]))
+        created = try_parse_time(str(comment.get("created_at") or ""))
         comment_id = str(comment.get("id", index))
+        if created is None:
+            saw_invalid = True
+            conflicts.append("ignored comment with an invalid timestamp")
+            continue
         body = str(comment.get("body") or "")
+        # An explicit Claim-Agent applies only inside this comment. A renewal
+        # that omits one belongs to the accepted holder, not to a rejected claim.
+        declared: str | None = None
         for raw in body.splitlines():
             line = raw.strip()
             claim = CLAIM_AGENT_RE.match(line)
             if claim:
-                carried_agent = claim.group(1).lower()
+                declared = claim.group(1).lower()
                 continue
             release = RELEASE_RE.match(line)
             if release:
@@ -389,8 +402,17 @@ def assess_lease(comments: Sequence[Mapping[str, object]], now: datetime) -> Lea
             expires = EXPIRES_RE.match(line)
             if not expires:
                 continue
-            exp = parse_time(expires.group(1))
-            agent = carried_agent
+            exp = try_parse_time(expires.group(1))
+            if exp is None:
+                saw_invalid = True
+                conflicts.append("ignored lease with an invalid timestamp")
+                continue
+            if declared is not None:
+                agent = declared
+            elif holder_agent is not None:
+                agent = holder_agent
+            else:
+                agent = None
             if agent not in ALLOWED_AGENTS:
                 saw_invalid = True
                 conflicts.append("ignored lease with no known Claim-Agent")
@@ -577,6 +599,35 @@ def issue_number() -> int:
     return int(raw)
 
 
+def parse_gh_payload(text: str) -> object:
+    """Decode one JSON value, or several pages concatenated by `gh api --paginate`.
+
+    Each page is its own JSON array. A single `json.loads` call stops at the
+    first page. List pages are flattened into the one list callers expect.
+    """
+    decoder = json.JSONDecoder()
+    index = 0
+    length = len(text)
+    values: list[object] = []
+    while index < length:
+        while index < length and text[index].isspace():
+            index += 1
+        if index >= length:
+            break
+        value, index = decoder.raw_decode(text, index)
+        values.append(value)
+    if not values:
+        raise json.JSONDecodeError("no JSON value", text, 0)
+    if len(values) == 1:
+        return values[0]
+    if all(isinstance(value, list) for value in values):
+        flat: list[object] = []
+        for value in values:
+            flat.extend(value)  # type: ignore[arg-type]
+        return flat
+    raise json.JSONDecodeError("paginated response was not a list of arrays", text, 0)
+
+
 def gh_json(args: list[str], payload: Mapping[str, object] | None = None) -> object:
     command = ["gh", "api", *args]
     completed = subprocess.run(
@@ -593,7 +644,7 @@ def gh_json(args: list[str], payload: Mapping[str, object] | None = None) -> obj
     if not text:
         return None
     try:
-        return json.loads(text)
+        return parse_gh_payload(text)
     except json.JSONDecodeError:
         raise GhError("unexpected API response")
 
@@ -747,9 +798,10 @@ def cmd_check_leases(apply: bool, now_value: str | None) -> int:
                 for warning in warnings:
                     print(f"issue {number}: {warning}", file=sys.stderr)
             print(f"issue {number}: {state.status}", file=sys.stderr)
-        except GhError as err:
+        except (GhError, ValueError) as err:
             failed = True
-            print(f"issue {number}: {err.message}", file=sys.stderr)
+            message = err.message if isinstance(err, GhError) else "invalid lease data"
+            print(f"issue {number}: {message}", file=sys.stderr)
     return 1 if failed else 0
 
 

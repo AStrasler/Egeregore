@@ -230,6 +230,42 @@ class LeaseTests(unittest.TestCase):
         state = coord.assess_lease([claim, renewal], NOW)
         self.assertEqual(state.status, "active")
         self.assertEqual(state.agent, "codex")
+        self.assertEqual(state.expires, NOW + timedelta(hours=2))
+
+    def test_agentless_renewal_after_rejected_overlap_extends_the_holder(self) -> None:
+        created = NOW - timedelta(hours=2)
+        holder = self.claim("cursor", created, NOW + timedelta(hours=4), 1)
+        overlap = self.claim("codex", created + timedelta(minutes=5), NOW + timedelta(hours=3), 2)
+        renewal_at = NOW + timedelta(hours=6)
+        renewal = comment(f"Lease-Expires: {iso(renewal_at)}\n", NOW - timedelta(minutes=10), 3)
+        state = coord.assess_lease([holder, overlap, renewal], NOW)
+        self.assertEqual(state.status, "active")
+        self.assertEqual(state.agent, "cursor")
+        self.assertEqual(state.expires, renewal_at)
+        self.assertEqual(
+            state.conflicts,
+            ("ignored overlapping claim by codex while cursor holds the lease",),
+        )
+
+    def test_invalid_calendar_timestamp_does_not_abort_the_rest(self) -> None:
+        created = NOW - timedelta(hours=1)
+        bad_expiry = comment(
+            "Claim-Agent: cursor\nLease-Expires: 2026-13-27T17:00:00Z\n",
+            created,
+            1,
+        )
+        bad_created = {
+            "id": 2,
+            "body": f"Claim-Agent: chatgpt\nLease-Expires: {iso(NOW + timedelta(hours=3))}\n",
+            "created_at": "2026-13-01T00:00:00Z",
+        }
+        good = self.claim("grokbot", NOW - timedelta(minutes=5), NOW + timedelta(hours=2), 3)
+        state = coord.assess_lease([bad_expiry, bad_created, good], NOW)
+        self.assertEqual(state.status, "active")
+        self.assertEqual(state.agent, "grokbot")
+        self.assertTrue(any("invalid timestamp" in item for item in state.conflicts))
+        only_bad = coord.assess_lease([bad_expiry], NOW)
+        self.assertEqual(only_bad.status, "invalid_agent")
 
     def test_missing_and_unknown_agent(self) -> None:
         self.assertEqual(coord.assess_lease([], NOW).status, "missing")
@@ -325,6 +361,16 @@ class DecisionTests(unittest.TestCase):
 
 
 class CliTests(unittest.TestCase):
+    def test_paginated_json_arrays_are_flattened(self) -> None:
+        first = json.dumps([{"id": 1}, {"id": 2}])
+        second = json.dumps([{"id": 3}])
+        parsed = coord.parse_gh_payload(first + "\n" + second)
+        self.assertEqual([item["id"] for item in parsed], [1, 2, 3])
+        self.assertEqual(coord.parse_gh_payload('{"id": 7}')["id"], 7)
+        self.assertEqual(coord.parse_gh_payload('[{"id": 8}]'), [{"id": 8}])
+        with self.assertRaises(json.JSONDecodeError):
+            coord.parse_gh_payload(first + "\n" + '{"id": 9}')
+
     def test_check_issue_cli_prints_json(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "issue.md"
