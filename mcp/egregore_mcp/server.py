@@ -22,8 +22,8 @@ INSTRUCTIONS = (
     "is still @AStrasler. This is not a separate GitHub identity. "
     "These tools do not merge, deploy, change settings, change permissions, or record "
     "Decision: approve or Decision: reject. "
-    "request_review posts the single line @codex review on a pull request and stops after "
-    "three completed Codex reviews."
+    "request_review posts the single line @codex review on an open pull request and stops after "
+    "three completed Codex reviews. It does not post on a closed pull request or repeat the same head."
 )
 
 _READ = ToolAnnotations(read_only_hint=True, destructive_hint=False, open_world_hint=True)
@@ -104,7 +104,7 @@ def build_server(service: CoordinationService | None = None) -> MCPServer:
 
     @server.tool(annotations=_WRITE)
     def release_task(issue_number: int, status: str, reason: str) -> ToolResponse:
-        """Release the caller's lease and set status to ready, blocked, needs-review, needs-owner, or done."""
+        """Release the caller's lease. status:done needs evidence, and a linked pull request must be merged and reviewed."""
         return _response(bound.release_task(issue_number, status, reason))
 
     @server.tool(annotations=_WRITE)
@@ -125,7 +125,7 @@ def build_server(service: CoordinationService | None = None) -> MCPServer:
 
     @server.tool(annotations=_WRITE)
     def request_review(pull_number: int) -> ToolResponse:
-        """Post a plain @codex review comment on the pull request. Stops after three completed reviews."""
+        """Post one @codex review on an open pull request. Closed pulls, a repeat of the same head, and a fourth round are refused."""
         return _response(bound.request_review(pull_number))
 
     @server.tool(annotations=_READ)

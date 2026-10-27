@@ -88,6 +88,12 @@ class RestGitHub:
             raise GitHubError(502, "GitHub HTTP 502: reviews response was not a list")
         return [item for item in payload if isinstance(item, dict)]
 
+    def list_reactions(self, number: int) -> list[dict[str, object]]:
+        payload = self._request("GET", f"issues/{number}/reactions", query={"per_page": "100"})
+        if not isinstance(payload, list):
+            raise GitHubError(502, "GitHub HTTP 502: reactions response was not a list")
+        return [item for item in payload if isinstance(item, dict)]
+
     def _request(
         self,
         method: str,

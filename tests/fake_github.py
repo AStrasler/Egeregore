@@ -32,7 +32,7 @@ class FakeGitHub:
         self.repo = repo
         self.issues: dict[int, dict[str, object]] = {}
         self.comments: dict[int, list[dict[str, object]]] = {}
-        self.pulls: dict[int, str] = {}
+        self.pulls: dict[int, dict[str, object]] = {}
         self._issue_seq = 1
         self._comment_seq = 1
         self._lock = threading.Lock()
@@ -61,11 +61,26 @@ class FakeGitHub:
             self.comments.setdefault(number, [])
             return number
 
-    def seed_pull(self, number: int, head_sha: str, *, title: str = "Review me") -> None:
-        self.seed_issue(title=title, body="pull request", labels=[], number=number)
+    def seed_pull(
+        self,
+        number: int,
+        head_sha: str,
+        *,
+        title: str = "Review me",
+        state: str = "open",
+        merged: bool = False,
+        reactions: list[dict[str, object]] | None = None,
+    ) -> None:
+        pull_state = "closed" if merged else state
+        self.seed_issue(title=title, body="pull request", labels=[], number=number, state=pull_state)
         with self._lock:
             self.issues[number]["pull_request"] = {"url": f"https://github.com/{self.repo}/pull/{number}"}
-            self.pulls[number] = head_sha
+            self.pulls[number] = {
+                "sha": head_sha,
+                "state": pull_state,
+                "merged": merged,
+                "reactions": list(reactions or []),
+            }
 
     def list_issues(self, *, state: str) -> list[dict[str, object]]:
         with self._lock:
@@ -129,13 +144,28 @@ class FakeGitHub:
         with self._lock:
             if number not in self.pulls:
                 raise GitHubError(404, "GitHub HTTP 404: Not Found")
-            return {"number": number, "head": {"sha": self.pulls[number]}, "title": self.issues[number]["title"]}
+            pull = self.pulls[number]
+            return {
+                "number": number,
+                "state": pull["state"],
+                "merged": pull["merged"],
+                "head": {"sha": pull["sha"]},
+                "title": self.issues[number]["title"],
+            }
 
     def list_reviews(self, number: int) -> list[dict[str, object]]:
         with self._lock:
             if number not in self.pulls:
                 raise GitHubError(404, "GitHub HTTP 404: Not Found")
             return []
+
+    def list_reactions(self, number: int) -> list[dict[str, object]]:
+        with self._lock:
+            if number not in self.pulls:
+                raise GitHubError(404, "GitHub HTTP 404: Not Found")
+            reactions = self.pulls[number]["reactions"]
+            assert isinstance(reactions, list)
+            return [dict(item) for item in reactions]
 
     def label_names(self, number: int) -> list[str]:
         with self._lock:
@@ -239,6 +269,8 @@ def _handler(store: FakeGitHub, token: str) -> type[BaseHTTPRequestHandler]:
                 return store.get_pull(int(rest[1]))
             if len(rest) == 3 and rest[0] == "pulls" and rest[2] == "reviews" and method == "GET":
                 return store.list_reviews(int(rest[1]))
+            if len(rest) == 3 and rest[0] == "issues" and rest[2] == "reactions" and method == "GET":
+                return store.list_reactions(int(rest[1]))
             raise KeyError(rest)
 
         def _json(self) -> dict[str, object]:

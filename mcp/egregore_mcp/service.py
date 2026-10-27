@@ -42,6 +42,17 @@ RELEASE_STATUSES = frozenset(
 _SHA_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
 _STATE_PREFIX = "codex-review-state:v1 "
 _RECEIPT_RE = re.compile(r"Reviewed commit:\*\*\s*`([0-9a-fA-F]{7,40})`")
+_PULL_URL_RE = re.compile(
+    r"https://github\.com/(?P<owner>[A-Za-z0-9_.-]+)/(?P<name>[A-Za-z0-9_.-]+)/pull/(?P<number>\d+)",
+    re.IGNORECASE,
+)
+_NO_PULL_RE = re.compile(
+    r"\b(no pull request|without a pull request|no merge|documentation only|docs only|research only)\b",
+    re.IGNORECASE,
+)
+_WANTS_PULL_RE = re.compile(r"\bpull request\b", re.IGNORECASE)
+_ISSUE_REF_RE = re.compile(r"(?<![\w/])#(\d+)\b")
+_CODEX_BOT = "chatgpt-codex-connector"
 
 
 def stamp(when: datetime) -> str:
@@ -199,6 +210,13 @@ def review_block(comments: Sequence[Mapping[str, object]], head: str) -> dict[st
             reviewed_sha=matched[-1]["sha"],
             **base,
         )
+    if matched:
+        return err(
+            "review_duplicate",
+            "A Codex review already covers this head commit. Push a new commit before requesting another review.",
+            reviewed_sha=matched[-1]["sha"],
+            **base,
+        )
     if len(rounds) >= MAX_REVIEW_ROUNDS:
         return err(
             "review_limit",
@@ -232,6 +250,12 @@ def stall_view(labels: Sequence[str], state: coord.LeaseState) -> dict[str, obje
         "flagged": coord.STALL_LABEL in set(labels),
         "lease_blocks_flag": state.status == "active",
     }
+
+
+def _mentions_issue(body: str, number: int) -> bool:
+    if any(int(match.group(1)) == number for match in _ISSUE_REF_RE.finditer(body)):
+        return True
+    return bool(re.search(rf"/issues/{number}\b", body))
 
 
 def _author(comment: Mapping[str, object]) -> str:
@@ -269,6 +293,8 @@ def _classify(body: str) -> str:
         return "renewal"
     if any(line == "## Progress" for line in lines):
         return "progress"
+    if any(line == "## Evidence" for line in lines):
+        return "evidence"
     return "comment"
 
 
@@ -384,7 +410,7 @@ class CoordinationService:
         loaded = self._holder(issue_number)
         if isinstance(loaded, dict) and loaded.get("ok") is False:
             return loaded
-        issue, state = loaded  # type: ignore[misc]
+        _issue, state = loaded  # type: ignore[misc]
         hours = self._hours(lease_hours)
         if isinstance(hours, dict):
             return hours
@@ -393,6 +419,9 @@ class CoordinationService:
             return note_error
         if state.status != "active" or state.agent != self.agent:
             return self._not_holding(state)
+        fresh = self._guard_mutation(issue_number)
+        if isinstance(fresh, dict) and fresh.get("ok") is False:
+            return fresh
         expires = stamp(self._expiry(hours))
         body = renewal_comment(agent=self.agent, expires=expires, note=note)
         posted = self._comment(issue_number, body)
@@ -429,16 +458,24 @@ class CoordinationService:
         last_holder = state.status == "expired" and state.agent == self.agent
         if not holder and not last_holder:
             return self._not_holding(state)
-        if "status:needs-owner" in labels and label != "status:needs-owner":
-            return err(
-                "not_claimable",
-                "This issue is waiting on the owner. release_task will not clear status:needs-owner.",
-            )
+        fresh = self._guard_mutation(issue_number)
+        if isinstance(fresh, dict) and fresh.get("ok") is False:
+            return fresh
+        if label == "status:done":
+            done_refusal = self._done_refusal(fresh, comments)
+            if done_refusal:
+                return done_refusal
+            fresh = self._guard_mutation(issue_number)
+            if isinstance(fresh, dict) and fresh.get("ok") is False:
+                return fresh
         body = release_comment(agent=self.agent, reason=reason)
         posted = self._comment(issue_number, body)
         if isinstance(posted, dict) and posted.get("ok") is False:
             return posted
-        labeled = self._set_status(issue_number, issue, label, agent=self.agent, drop_expired=True)
+        current = self._guard_mutation(issue_number)
+        if isinstance(current, dict) and current.get("ok") is False:
+            return current
+        labeled = self._set_status(issue_number, current, label, agent=self.agent, drop_expired=True)
         if isinstance(labeled, dict) and labeled.get("ok") is False:
             return labeled
         fresh = self._assess(issue_number)
@@ -458,18 +495,24 @@ class CoordinationService:
         loaded = self._holder(issue_number)
         if isinstance(loaded, dict) and loaded.get("ok") is False:
             return loaded
-        issue, _state = loaded  # type: ignore[misc]
+        _issue, _state = loaded  # type: ignore[misc]
         for field, value in (("done", done), ("next", next_step)):
             text_error = self._required_text(value, field)
             if text_error:
                 return text_error
+        fresh = self._guard_mutation(issue_number)
+        if isinstance(fresh, dict) and fresh.get("ok") is False:
+            return fresh
         body = progress_comment(agent=self.agent, done=done, next_step=next_step)
         posted = self._comment(issue_number, body)
         if isinstance(posted, dict) and posted.get("ok") is False:
             return posted
-        labels = coord.label_names(issue.get("labels") or [])
+        current = self._guard_mutation(issue_number)
+        if isinstance(current, dict) and current.get("ok") is False:
+            return current
+        labels = coord.label_names(current.get("labels") or [])
         if "status:claimed" in labels and "status:needs-owner" not in labels:
-            labeled = self._set_status(issue_number, issue, "status:in-progress", agent=self.agent, drop_expired=True)
+            labeled = self._set_status(issue_number, current, "status:in-progress", agent=self.agent, drop_expired=True)
             if isinstance(labeled, dict) and labeled.get("ok") is False:
                 return labeled
         return ok(
@@ -504,6 +547,10 @@ class CoordinationService:
         title_error = self._optional_text(title, "title")
         if title_error:
             return title_error
+        fresh = self._guard_mutation(issue_number)
+        if isinstance(fresh, dict) and fresh.get("ok") is False:
+            return fresh
+        issue = fresh
         parsed = coord.sections(str(issue.get("body") or ""))
         project = coord.first_line(parsed.get("Project")) or "coordination"
         project_slug = coord.first_line(parsed.get("Project slug"))
@@ -533,11 +580,17 @@ class CoordinationService:
         except GitHubError as exc:
             return self._github_err(exc)
         number = int(created["number"])
+        current = self._guard_mutation(issue_number)
+        if isinstance(current, dict) and current.get("ok") is False:
+            return current
         note = handoff_note(agent=self.agent, to_agent=target, handoff_number=number)
         posted = self._comment(issue_number, note)
         if isinstance(posted, dict) and posted.get("ok") is False:
             return posted
-        labeled = self._set_status(issue_number, issue, "status:blocked", agent=self.agent, drop_expired=True)
+        current = self._guard_mutation(issue_number)
+        if isinstance(current, dict) and current.get("ok") is False:
+            return current
+        labeled = self._set_status(issue_number, current, "status:blocked", agent=self.agent, drop_expired=True)
         if isinstance(labeled, dict) and labeled.get("ok") is False:
             return labeled
         return ok(
@@ -568,6 +621,14 @@ class CoordinationService:
             head = str(head_obj.get("sha") or "")
         if not _SHA_RE.fullmatch(head):
             return err("invalid_input", "The pull request has no head SHA to review.")
+        pull_state = str(pull.get("state") or "open").lower()
+        if pull_state == "closed" or pull.get("merged") is True:
+            return err(
+                "not_reviewable",
+                "This pull request is closed. request_review does not post.",
+                state=pull_state,
+                merged=pull.get("merged") is True,
+            )
         refusal = review_block(comments, head)
         if refusal:
             return refusal
@@ -784,7 +845,36 @@ class CoordinationService:
             )
         if state.status != "active" or state.agent != self.agent:
             return self._not_holding(state)
+        refusal = self._holder_state_refusal(issue)
+        if refusal:
+            return refusal
         return issue, state
+
+    def _holder_state_refusal(self, issue: Mapping[str, object]) -> dict[str, object] | None:
+        if str(issue.get("state") or "open").lower() == "closed":
+            return err("not_claimable", "This issue is closed. The call did not post.")
+        labels = coord.label_names(issue.get("labels") or [])
+        if "status:done" in labels:
+            return err("not_claimable", "This issue is already done. The call did not post.")
+        if "status:blocked" in labels:
+            return err(
+                "not_claimable",
+                "This issue is blocked. The call did not post. Move it back to status:ready after the unblocker happens.",
+            )
+        if self._needs_owner(issue):
+            return err("not_claimable", "This issue is waiting on the owner. The call did not post.")
+        return None
+
+    def _guard_mutation(self, number: int) -> Mapping[str, object] | dict[str, object]:
+        """Read the issue again immediately before a write."""
+        try:
+            issue = self.github.get_issue(number)  # type: ignore[union-attr]
+        except GitHubError as exc:
+            return self._github_err(exc)
+        refusal = self._holder_state_refusal(issue)
+        if refusal:
+            return refusal
+        return issue
 
     def _claim_refusal(self, issue: Mapping[str, object], lease: coord.LeaseState) -> dict[str, object] | None:
         if coord.is_pull_request(issue):
@@ -828,6 +918,149 @@ class CoordinationService:
         if role and role != "any" and role != self.agent:
             return err("wrong_role", f"This issue is for {role}.", expected_role=role, agent=self.agent)
         return None
+
+    def _done_refusal(
+        self,
+        issue: Mapping[str, object],
+        comments: Sequence[Mapping[str, object]],
+    ) -> dict[str, object] | None:
+        if self._needs_owner(issue):
+            return err("not_claimable", "This issue is waiting on the owner. release_task will not set status:done.")
+        number = int(issue["number"])
+        evidence = self._has_completion_evidence(number, comments)
+        if isinstance(evidence, dict):
+            return evidence
+        if not evidence:
+            return err(
+                "not_done",
+                "status:done needs an evidence comment or an evidence issue that links this task. Nothing was posted.",
+            )
+        requirement = self._pull_requirement(issue, comments)
+        if requirement == "waived":
+            return None
+        if requirement == "outside":
+            return err(
+                "not_done",
+                "A linked pull request is outside this coordination repository. "
+                "release_task cannot verify that merge and did not set status:done.",
+            )
+        if requirement != "required":
+            return err(
+                "not_done",
+                "status:done needs a linked pull request in this repository, or text that this task needs no pull request. "
+                "Nothing was posted.",
+            )
+        return self._pulls_are_complete(issue, comments)
+
+    def _has_completion_evidence(
+        self,
+        number: int,
+        comments: Sequence[Mapping[str, object]],
+    ) -> bool | dict[str, object]:
+        for comment in comments:
+            if _classify(str(comment.get("body") or "")) == "evidence":
+                return True
+        try:
+            issues = self.github.list_issues(state="all")  # type: ignore[union-attr]
+        except GitHubError as exc:
+            return self._github_err(exc)
+        for item in issues:
+            if coord.is_pull_request(item):
+                continue
+            try:
+                item_number = int(item.get("number") or 0)
+            except (TypeError, ValueError):
+                continue
+            if item_number == number:
+                continue
+            labels = coord.label_names(item.get("labels") or [])
+            kind = coord.kind_from_title(str(item.get("title") or ""))
+            if "type:evidence" not in labels and kind != "evidence":
+                continue
+            if _mentions_issue(str(item.get("body") or ""), number):
+                return True
+        return False
+
+    def _pull_requirement(self, issue: Mapping[str, object], comments: Sequence[Mapping[str, object]]) -> str:
+        body = str(issue.get("body") or "")
+        text = "\n".join([body, *[str(comment.get("body") or "") for comment in comments]])
+        links = list(_PULL_URL_RE.finditer(text))
+        if links:
+            repo = self.repo.lower()
+            if any(f"{match.group('owner')}/{match.group('name')}".lower() != repo for match in links):
+                return "outside"
+            return "required"
+        sections = coord.sections(body)
+        described = "\n".join(
+            sections.get(name, "") for name in ("Outcome", "Context", "Out of scope")
+        )
+        if _NO_PULL_RE.search(described):
+            return "waived"
+        project = coord.first_line(sections.get("Project")).lower()
+        if project == "other" and not _WANTS_PULL_RE.search(described):
+            return "waived"
+        if _WANTS_PULL_RE.search(described):
+            return "required"
+        return "unknown"
+
+    def _pulls_are_complete(
+        self,
+        issue: Mapping[str, object],
+        comments: Sequence[Mapping[str, object]],
+    ) -> dict[str, object] | None:
+        text = "\n".join([str(issue.get("body") or ""), *[str(comment.get("body") or "") for comment in comments]])
+        numbers: list[int] = []
+        for match in _PULL_URL_RE.finditer(text):
+            pull_number = int(match.group("number"))
+            if pull_number not in numbers:
+                numbers.append(pull_number)
+        for pull_number in numbers:
+            try:
+                pull = self.github.get_pull(pull_number)  # type: ignore[union-attr]
+                pull_comments = self.github.list_comments(pull_number)  # type: ignore[union-attr]
+                reactions = self.github.list_reactions(pull_number)  # type: ignore[union-attr]
+            except GitHubError as exc:
+                return self._github_err(exc)
+            if pull.get("merged") is not True:
+                return err(
+                    "not_done",
+                    "The linked pull request is not merged. status:done was not set.",
+                    pull_number=pull_number,
+                )
+            head = ""
+            head_obj = pull.get("head")
+            if isinstance(head_obj, dict):
+                head = str(head_obj.get("sha") or "")
+            if not self._review_passed(pull_comments, reactions, head):
+                return err(
+                    "not_done",
+                    "The linked pull request has no passing Codex review of its head. status:done was not set.",
+                    pull_number=pull_number,
+                    head_sha=head,
+                )
+        return None
+
+    def _review_passed(
+        self,
+        comments: Sequence[Mapping[str, object]],
+        reactions: Sequence[Mapping[str, object]],
+        head: str,
+    ) -> bool:
+        if not head:
+            return False
+        rounds, _pending = completed_reviews(comments)
+        matched = [item for item in rounds if _same_commit(str(item["sha"]), head)]
+        if not matched:
+            return False
+        latest = matched[-1]
+        if latest.get("source") != "summary" or latest.get("unresolved") is not False:
+            return False
+        for reaction in reactions:
+            if str(reaction.get("content") or "") != "+1":
+                continue
+            if _CODEX_BOT in _author(reaction).lower():
+                return True
+        return False
 
     def _needs_owner(self, issue: Mapping[str, object]) -> bool:
         labels = coord.label_names(issue.get("labels") or [])

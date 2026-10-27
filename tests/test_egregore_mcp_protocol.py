@@ -189,6 +189,10 @@ class ProtocolTests(unittest.TestCase):
                 self.assertEqual(read["result"]["sections"]["From"], "cursor")
                 self.assertEqual(read["result"]["sections"]["To"], "codex")
                 self.assertIn("does not grant", read["result"]["sections"]["Access"])
+                claimed_handoff = payload(await codex.call_tool("claim_task", {"issue_number": handoff_number}))
+                self.assertTrue(claimed_handoff["ok"], claimed_handoff)
+                self.assertEqual(claimed_handoff["result"]["lease"]["agent"], "codex")
+                self.assertIn("status:claimed", store.label_names(handoff_number))
                 history = payload(await codex.call_tool("get_task_history", {"issue_number": number}))
                 kinds = [event["kind"] for event in history["result"]["events"]]
                 self.assertIn("progress", kinds)

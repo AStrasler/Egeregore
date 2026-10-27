@@ -35,17 +35,17 @@ Clients use `http://127.0.0.1:8765/mcp`. `EGREGORE_HTTP_HOST` accepts `127.0.0.1
 | `get_tasks` | List issues. Default kind is `task`. Filters: `state`, `kind`, `status`, `project`, `role`, `limit`. |
 | `get_task` | One issue, its form fields, the current lease, and the stall gate. |
 | `claim_task` | Claim an open `type:task` that is `status:ready`, or reclaim one that is `status:claimed` or `status:in-progress` after the lease expired. The role named in `To` may claim a ready handoff on the same rules. Default 6 hours, maximum 24. The earliest live claim wins. Evidence, review, and decision issues are refused, as are closed issues and `status:blocked` or `status:needs-review`. |
-| `renew_lease` | The holder posts a new expiry. The original claim comment id stays. |
-| `release_task` | The holder releases and sets `ready`, `blocked`, `needs-review`, `needs-owner`, or `done`. |
-| `post_progress` | Progress comment from the holder. Moves `status:claimed` to `status:in-progress`. |
-| `handoff_task` | Opens a `[Handoff]` issue for another role and releases the source lease. |
-| `request_review` | Posts a pull-request comment whose body is exactly `@codex review`. |
+| `renew_lease` | The holder posts a new expiry. The original claim comment id stays. Re-reads the issue and refuses a closed, done, blocked, or owner-gated issue. |
+| `release_task` | The holder releases and sets `ready`, `blocked`, `needs-review`, `needs-owner`, or `done`. `status:done` needs evidence. A linked pull request in this repo must be merged, with a Codex summary of no unresolved findings on that head and a 👍 from `chatgpt-codex-connector`. Docs, research, or project `other` tasks that need no pull request skip that check. Owner approval is not bypassed. |
+| `post_progress` | Progress comment from the holder. Re-reads the issue and refuses a closed, done, blocked, or owner-gated issue. Moves `status:claimed` to `status:in-progress`. |
+| `handoff_task` | Opens a `[Handoff]` issue for another role and releases the source lease. The same closed, done, blocked, and owner gates apply. |
+| `request_review` | Posts a pull-request comment whose body is exactly `@codex review`. Refuses a closed or merged pull request, a second request for the same head, and a fourth completed round. |
 | `get_owner_decisions` | Decision issues and `Decision:` comments. |
 | `get_task_history` | Comment history with credential-shaped text redacted. |
 
 A result is JSON: `{"ok": true, "result": ...}` or `{"ok": false, "error": {"code": "...", "message": "...", "details": {}}}`.
 
-Error codes: `invalid_input`, `not_found`, `lease_conflict`, `lease_not_holder`, `lease_expired`, `not_claimable`, `wrong_role`, `review_limit`, `review_current`, `review_same_head`, `review_pending`, `forbidden`, `secret_rejected`, `github_error`, `unconfigured`.
+Error codes: `invalid_input`, `not_found`, `lease_conflict`, `lease_not_holder`, `lease_expired`, `not_claimable`, `not_done`, `not_reviewable`, `wrong_role`, `review_limit`, `review_current`, `review_same_head`, `review_duplicate`, `review_pending`, `forbidden`, `secret_rejected`, `github_error`, `unconfigured`.
 
 `lease_conflict` means another agent holds the live lease. The losing claim is stored, labels stay with the holder, and the conflict marker from `coordination.py` names that holder's claim comment id.
 
@@ -53,7 +53,11 @@ Error codes: `invalid_input`, `not_found`, `lease_conflict`, `lease_not_holder`,
 
 `stall` on a task is the same gate lease watch uses. `reason` comes from `stall_reason` (`needs-review`, `handoff`, `needs-owner`, or null). `flagged` is whether `stall:flagged` is already on the issue. `lease_blocks_flag` is true when `assess_lease` says the lease is active, which is when `stall_plan` refuses to flag. These tools do not post `<!-- egregore-stall: -->` and do not add or remove `stall:flagged`. A claim, progress note, or handoff is an ordinary comment, so it counts as newer activity for the next lease-watch run.
 
-`request_review` allows three completed Codex reviews of distinct commits. A fourth request returns `review_limit`. A receipt that already names the current head with no unresolved findings returns `review_current`. Findings on that same head return `review_same_head`. Push a new commit before asking again. When a summary and a receipt name the same commit, the summary's `has_unresolved_findings` flag wins, including when the summary was edited after the receipt.
+`request_review` allows three completed Codex reviews of distinct commits. A fourth request returns `review_limit`. A receipt that already names the current head with no unresolved findings returns `review_current`. Findings on that same head return `review_same_head`. Another record for that same head returns `review_duplicate`. A second request while a review is still running returns `review_pending`. A closed or merged pull request returns `not_reviewable` and posts nothing. Push a new commit before asking again. When a summary and a receipt name the same commit, the summary's `has_unresolved_findings` flag wins, including when the summary was edited after the receipt.
+
+Renew, progress, handoff, and release re-read the issue immediately before they write. A closed issue, `status:done`, `status:blocked`, `status:needs-owner`, or `Approval needed: yes` returns `not_claimable` and posts nothing. An open task with a live lease can still renew, post progress, hand off, and release to `status:ready`.
+
+`release_task` with `status:done` also returns `not_done` unless completion evidence is already on the task. Evidence is a comment whose heading is `## Evidence`, or an evidence issue that links this task. For a linked pull request in this repository, the pull request must be merged, the Codex summary for that head must have `has_unresolved_findings` false, and the pull request must carry a 👍 from `chatgpt-codex-connector`. A clear receipt does not override a summary that still has findings. A pull request in another repository is not treated as merged. A task needs no pull request when its outcome, context, or out-of-scope text says `no pull request`, `no merge`, `documentation only`, `docs only`, or `research only`, or when Project is `other` and it never asks for a pull request. `status:done` still does not clear an owner gate.
 
 ## Cursor
 
@@ -132,5 +136,7 @@ This branch is rebased on `main` at `0e1e4a2` (pull requests #9 and #11). It imp
 Hosting is in [HOSTING.md](HOSTING.md). The short version: run it locally. Do not deploy it from this pull request.
 
 Issue comments are not a lock. Two clients can both read `status:ready` before either comment is visible. The earlier live claim wins after GitHub stores both comments.
+
+A pull request linked outside this repository is not marked merged. This server's GitHub client reads only `EGREGORE_REPO`.
 
 A live test against this repository was not run from the implementation environment. That environment has no `EGREGORE_GITHUB_TOKEN`, and its `gh` login cannot write issues here. Do not copy a token out of another session to force that test.

@@ -48,7 +48,15 @@ def iso(when: datetime) -> str:
     return when.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def task_body(role: str = "any", *, project: str = "coordination", approval: str = "no", context: str = "https://github.com/AStrasler/Egeregore/issues/13") -> str:
+def task_body(
+    role: str = "any",
+    *,
+    project: str = "coordination",
+    approval: str = "no",
+    context: str = "https://github.com/AStrasler/Egeregore/issues/13",
+    outcome: str = "The MCP server is on a branch.",
+    out_of_scope: str = "No merge and no deploy.",
+) -> str:
     return "\n".join(
         [
             "### Project",
@@ -65,7 +73,7 @@ def task_body(role: str = "any", *, project: str = "coordination", approval: str
             "",
             "### Outcome",
             "",
-            "The MCP server is on a branch.",
+            outcome,
             "",
             "### Context",
             "",
@@ -73,7 +81,7 @@ def task_body(role: str = "any", *, project: str = "coordination", approval: str
             "",
             "### Out of scope",
             "",
-            "No merge and no deploy.",
+            out_of_scope,
             "",
             "### Approval needed",
             "",
@@ -740,6 +748,359 @@ class ServiceTests(unittest.TestCase):
                 os.environ.pop("EGREGORE_HTTP_HOST", None)
             else:
                 os.environ["EGREGORE_HTTP_HOST"] = previous
+
+
+    def _fresh_claim(self, body: str | None = None) -> int:
+        number = self.store.seed_issue(
+            title="[Task]: Build the server",
+            body=body or task_body(),
+            labels=["type:task", "status:ready", "project:coordination"],
+        )
+        claimed = self.cursor.claim_task(number)
+        self.assertTrue(claimed["ok"], claimed)
+        return number
+
+    def _assert_holder_writes_refused(self, number: int) -> None:
+        before_comments = len(self.store.list_comments(number))
+        before_labels = self.store.label_names(number)
+        before_state = self.store.issues[number]["state"]
+        issue_count = len(self.store.issues)
+        results = (
+            self.cursor.post_progress(number, "More.", "Next."),
+            self.cursor.renew_lease(number, 2, "again"),
+            self.cursor.handoff_task(number, "codex", "Done.", "Next.", "Next step"),
+            self.cursor.release_task(number, "ready", "stopping"),
+            self.cursor.release_task(number, "done", "finished"),
+        )
+        for result in results:
+            self.assertEqual(result["error"]["code"], "not_claimable", result)
+        self.assertEqual(len(self.store.list_comments(number)), before_comments)
+        self.assertEqual(self.store.label_names(number), before_labels)
+        self.assertEqual(self.store.issues[number]["state"], before_state)
+        self.assertEqual(len(self.store.issues), issue_count)
+
+    def test_holder_ops_refuse_each_prohibited_state_and_keep_a_live_lease(self) -> None:
+        closed = self._fresh_claim()
+        self.store.issues[closed]["state"] = "closed"
+        self._assert_holder_writes_refused(closed)
+
+        done = self._fresh_claim()
+        self.store.issues[done]["labels"] = ["type:task", "status:done", "agent:cursor", "project:coordination"]
+        self._assert_holder_writes_refused(done)
+
+        blocked = self._fresh_claim()
+        self.store.issues[blocked]["labels"] = ["type:task", "status:blocked", "agent:cursor", "project:coordination"]
+        self._assert_holder_writes_refused(blocked)
+
+        owned = self._fresh_claim()
+        self.store.issues[owned]["labels"] = ["type:task", "status:needs-owner", "agent:cursor", "project:coordination"]
+        self._assert_holder_writes_refused(owned)
+
+        waiting = self.store.seed_issue(
+            title="[Task]: Wait for Aaron",
+            body=task_body("cursor", approval="yes"),
+            labels=["type:task", "status:claimed", "agent:cursor", "project:coordination"],
+        )
+        self.store.create_comment(
+            waiting,
+            "Agent: Cursor\n\n## Claim\nClaim-Agent: cursor\nLease-Expires: 2026-10-28T00:00:00Z\n",
+        )
+        self._assert_holder_writes_refused(waiting)
+
+        live = self._fresh_claim()
+        progress = self.cursor.post_progress(live, "Still open.", "Continue.")
+        self.assertTrue(progress["ok"], progress)
+        self.assertIn("status:in-progress", self.store.label_names(live))
+        renewed = self.cursor.renew_lease(live, 2, "still going")
+        self.assertTrue(renewed["ok"], renewed)
+        self.assertEqual(renewed["result"]["lease"]["status"], "active")
+        released = self.cursor.release_task(live, "ready", "pausing")
+        self.assertTrue(released["ok"], released)
+        self.assertIn("status:ready", self.store.label_names(live))
+        self.assertNotIn("status:done", self.store.label_names(live))
+
+    def test_holder_ops_reread_the_issue_before_writing(self) -> None:
+        ops = (
+            ("progress", lambda number: self.cursor.post_progress(number, "Done.", "Next.")),
+            ("renew", lambda number: self.cursor.renew_lease(number, 2, "note")),
+            ("handoff", lambda number: self.cursor.handoff_task(number, "codex", "Done.", "Next.", "Title")),
+            ("release", lambda number: self.cursor.release_task(number, "ready", "stopping")),
+        )
+        original = self.store.get_issue
+        for name, op in ops:
+            number = self._fresh_claim()
+            calls = {"n": 0}
+
+            def wrapped(requested: int, _number: int = number, _calls: dict[str, int] = calls) -> dict[str, object]:
+                if requested == _number:
+                    _calls["n"] += 1
+                    if _calls["n"] == 1:
+                        issue = original(requested)
+                        self.store.issues[requested]["state"] = "closed"
+                        return issue
+                return original(requested)
+
+            self.store.get_issue = wrapped  # type: ignore[method-assign]
+            try:
+                before = len(self.store.list_comments(number))
+                issue_count = len(self.store.issues)
+                refused = op(number)
+                self.assertEqual(refused["error"]["code"], "not_claimable", name)
+                self.assertGreaterEqual(calls["n"], 2, name)
+                self.assertEqual(len(self.store.list_comments(number)), before, name)
+                self.assertEqual(len(self.store.issues), issue_count, name)
+                self.assertEqual(self.store.issues[number]["state"], "closed")
+            finally:
+                self.store.get_issue = original  # type: ignore[method-assign]
+
+    def test_simultaneous_claims_keep_the_earlier_lease(self) -> None:
+        import threading
+
+        barrier = threading.Barrier(2)
+        results: dict[str, dict[str, object]] = {}
+
+        def run(name: str, service: CoordinationService) -> None:
+            barrier.wait()
+            results[name] = service.claim_task(self.number, 6)
+
+        threads = (
+            threading.Thread(target=run, args=("cursor", self.cursor)),
+            threading.Thread(target=run, args=("codex", self.codex)),
+        )
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        winners = [name for name, result in results.items() if result.get("ok")]
+        self.assertEqual(len(winners), 1, results)
+        state = coord.assess_lease(self.store.list_comments(self.number), NOW)
+        self.assertEqual(state.status, "active")
+        self.assertEqual(state.agent, winners[0])
+        loser = "codex" if winners[0] == "cursor" else "cursor"
+        self.assertEqual(results[loser]["error"]["code"], "lease_conflict")
+
+    def test_status_done_requires_evidence_and_a_merged_reviewed_pull_request(self) -> None:
+        docs = self._fresh_claim(
+            task_body(
+                outcome="The runbook paragraph is updated.",
+                out_of_scope="Documentation only. No pull request.",
+            )
+        )
+        missing = self.cursor.release_task(docs, "done", "the paragraph is in the branch")
+        self.assertEqual(missing["error"]["code"], "not_done")
+        self.assertEqual(len(self.store.list_comments(docs)), 1)
+        self.assertIn("status:claimed", self.store.label_names(docs))
+        self.store.seed_issue(
+            title="[Evidence]: Runbook updated",
+            body=f"### Related issue\n\n#{docs}\n\n### What happened\n\nThe paragraph is updated.\n",
+            labels=["type:evidence"],
+        )
+        finished = self.cursor.release_task(docs, "done", "evidence is linked")
+        self.assertTrue(finished["ok"], finished)
+        self.assertEqual(finished["result"]["status"], "status:done")
+        self.assertIn("status:done", self.store.label_names(docs))
+        self.assertEqual(coord.assess_lease(self.store.list_comments(docs), NOW).status, "released")
+
+        other = self._fresh_claim(
+            task_body(
+                project="other",
+                outcome="A research note is filed.",
+                out_of_scope="Research only.",
+                context="https://github.com/AStrasler/Egeregore/issues/1",
+            )
+        )
+        self.store.create_comment(other, "Agent: Cursor\n\n## Evidence\n\nThe note is filed.\n")
+        researched = self.cursor.release_task(other, "done", "research is recorded")
+        self.assertTrue(researched["ok"], researched)
+        self.assertIn("status:done", self.store.label_names(other))
+
+        unknown = self._fresh_claim(
+            task_body(outcome="The widget is updated.", out_of_scope="Leave credentials alone.")
+        )
+        self.store.seed_issue(
+            title="[Evidence]: Widget",
+            body=f"### Related issue\n\n#{unknown}\n",
+            labels=["type:evidence"],
+        )
+        unclear = self.cursor.release_task(unknown, "done", "maybe")
+        self.assertEqual(unclear["error"]["code"], "not_done")
+        self.assertEqual(len(self.store.list_comments(unknown)), 1)
+
+        sha = "b" * 40
+        thumbs = [{"content": "+1", "user": {"login": "chatgpt-codex-connector[bot]"}}]
+        open_pull = 30
+        self.store.seed_pull(open_pull, sha)
+        open_task = self._fresh_claim(
+            task_body(
+                outcome="The server is implemented.",
+                out_of_scope="Leave credentials alone.",
+                context=f"https://github.com/AStrasler/Egeregore/pull/{open_pull}",
+            )
+        )
+        self.store.seed_issue(
+            title="[Evidence]: Open pull request",
+            body=f"### Links\n\nhttps://github.com/AStrasler/Egeregore/issues/{open_task}\n",
+            labels=["type:evidence"],
+        )
+        still_open = self.cursor.release_task(open_task, "done", "the pull request is open")
+        self.assertEqual(still_open["error"]["code"], "not_done")
+        self.assertEqual(still_open["error"]["details"]["pull_number"], open_pull)
+        self.assertEqual(len(self.store.list_comments(open_task)), 1)
+
+        closed_pull = 31
+        self.store.seed_pull(closed_pull, sha, state="closed", merged=False)
+        closed_task = self._fresh_claim(
+            task_body(
+                outcome="The server is implemented.",
+                out_of_scope="Leave credentials alone.",
+                context=f"https://github.com/AStrasler/Egeregore/pull/{closed_pull}",
+            )
+        )
+        self.store.create_comment(closed_task, "## Evidence\n\nClosed without a merge.\n")
+        not_merged = self.cursor.release_task(closed_task, "done", "closed")
+        self.assertEqual(not_merged["error"]["code"], "not_done")
+        self.assertEqual(len(self.store.list_comments(closed_task)), 2)
+
+        merged_pull = 32
+        self.store.seed_pull(merged_pull, sha, merged=True, reactions=thumbs)
+        self.store.comments[merged_pull].append(
+            summary_comment(sha, unresolved=True, comment_id=900, created=NOW, updated=NOW + timedelta(minutes=5))
+        )
+        self.store.comments[merged_pull].append(receipt_comment(sha[:12], 901, NOW + timedelta(minutes=1), passed=True))
+        findings = self._fresh_claim(
+            task_body(
+                outcome="The server is implemented.",
+                out_of_scope="Leave credentials alone.",
+                context=f"https://github.com/AStrasler/Egeregore/pull/{merged_pull}",
+            )
+        )
+        self.store.create_comment(findings, "## Evidence\n\nReview still has findings.\n")
+        blocked_review = self.cursor.release_task(findings, "done", "receipt looked clear")
+        self.assertEqual(blocked_review["error"]["code"], "not_done")
+        self.assertNotIn("status:done", self.store.label_names(findings))
+        self.assertEqual(len(self.store.list_comments(findings)), 2)
+
+        quiet = 33
+        self.store.seed_pull(quiet, sha, merged=True)
+        self.store.comments[quiet].append(summary_comment(sha, unresolved=False, comment_id=902, created=NOW))
+        no_thumbs = self._fresh_claim(
+            task_body(
+                outcome="The server is implemented.",
+                out_of_scope="Leave credentials alone.",
+                context=f"https://github.com/AStrasler/Egeregore/pull/{quiet}",
+            )
+        )
+        self.store.create_comment(no_thumbs, "## Evidence\n\nSummary is clear.\n")
+        missing_thumbs = self.cursor.release_task(no_thumbs, "done", "no reaction")
+        self.assertEqual(missing_thumbs["error"]["code"], "not_done")
+        self.assertEqual(len(self.store.list_comments(no_thumbs)), 2)
+
+        passed = 34
+        self.store.seed_pull(passed, sha, merged=True, reactions=thumbs)
+        self.store.comments[passed].append(summary_comment(sha, unresolved=False, comment_id=903, created=NOW))
+        implemented = self._fresh_claim(
+            task_body(
+                outcome="The server is implemented.",
+                out_of_scope="Leave credentials alone.",
+                context=f"https://github.com/AStrasler/Egeregore/pull/{passed}",
+            )
+        )
+        self.store.create_comment(implemented, "## Evidence\n\nThe pull request merged.\n")
+        marked = self.cursor.release_task(implemented, "done", "merged and reviewed")
+        self.assertTrue(marked["ok"], marked)
+        self.assertIn("status:done", self.store.label_names(implemented))
+        self.assertEqual(coord.assess_lease(self.store.list_comments(implemented), NOW).status, "released")
+
+        outside = self._fresh_claim(
+            task_body(
+                outcome="The week view is fixed.",
+                out_of_scope="Leave credentials alone.",
+                context="https://github.com/AStrasler/WHOOP-Lens/pull/4",
+            )
+        )
+        self.store.create_comment(outside, "## Evidence\n\nFixed in the other repo.\n")
+        elsewhere = self.cursor.release_task(outside, "done", "merged over there")
+        self.assertEqual(elsewhere["error"]["code"], "not_done")
+        self.assertEqual(len(self.store.list_comments(outside)), 2)
+        self.assertNotIn("status:done", self.store.label_names(outside))
+
+        missing_pull = self._fresh_claim(
+            task_body(
+                outcome="The server is implemented.",
+                out_of_scope="Leave credentials alone.",
+                context="https://github.com/AStrasler/Egeregore/pull/99",
+            )
+        )
+        self.store.create_comment(missing_pull, "## Evidence\n\nThe link does not resolve.\n")
+        missing = self.cursor.release_task(missing_pull, "done", "pull request 99")
+        self.assertEqual(missing["error"]["code"], "not_found")
+        self.assertEqual(len(self.store.list_comments(missing_pull)), 2)
+        self.assertNotIn("status:done", self.store.label_names(missing_pull))
+
+        gated = self.store.seed_issue(
+            title="[Task]: Needs Aaron",
+            body=task_body(
+                approval="yes",
+                outcome="The server is implemented.",
+                out_of_scope="Leave credentials alone.",
+                context=f"https://github.com/AStrasler/Egeregore/pull/{passed}",
+            ),
+            labels=["type:task", "status:claimed", "agent:cursor", "project:coordination"],
+        )
+        self.store.create_comment(
+            gated,
+            "Agent: Cursor\n\n## Claim\nClaim-Agent: cursor\nLease-Expires: 2026-10-28T00:00:00Z\n",
+        )
+        self.store.create_comment(gated, "## Evidence\n\nReady for Aaron.\n")
+        bypass = self.cursor.release_task(gated, "done", "skip the owner")
+        self.assertEqual(bypass["error"]["code"], "not_claimable")
+        self.assertNotIn("status:done", self.store.label_names(gated))
+        self.assertEqual(len(self.store.list_comments(gated)), 2)
+
+    def test_review_request_rejects_closed_pulls_and_duplicate_heads(self) -> None:
+        closed = 40
+        self.store.seed_pull(closed, HEAD, state="closed", merged=False)
+        refused = self.cursor.request_review(closed)
+        self.assertEqual(refused["error"]["code"], "not_reviewable")
+        self.assertEqual(self.store.list_comments(closed), [])
+
+        merged = 41
+        self.store.seed_pull(merged, HEAD, merged=True)
+        merged_refusal = self.cursor.request_review(merged)
+        self.assertEqual(merged_refusal["error"]["code"], "not_reviewable")
+        self.assertEqual(self.store.list_comments(merged), [])
+
+        duplicate = 42
+        self.store.seed_pull(duplicate, HEAD)
+        first = self.cursor.request_review(duplicate)
+        self.assertTrue(first["ok"], first)
+        second = self.cursor.request_review(duplicate)
+        self.assertEqual(second["error"]["code"], "review_pending")
+        self.assertEqual([item["body"] for item in self.store.comments[duplicate]].count(REVIEW_COMMENT), 1)
+        self.store.comments[duplicate].append(
+            summary_comment(HEAD, unresolved=True, comment_id=910, created=NOW, updated=NOW + timedelta(minutes=5))
+        )
+        third = self.cursor.request_review(duplicate)
+        self.assertEqual(third["error"]["code"], "review_same_head")
+        self.assertEqual([item["body"] for item in self.store.comments[duplicate]].count(REVIEW_COMMENT), 1)
+
+        recorded = 43
+        self.store.seed_pull(recorded, HEAD)
+        self.store.comments[recorded].append(receipt_comment(HEAD, 911, NOW, passed=False))
+        again = self.cursor.request_review(recorded)
+        self.assertEqual(again["error"]["code"], "review_duplicate")
+        self.assertEqual(self.store.list_comments(recorded), [self.store.comments[recorded][0]])
+
+        limited = 44
+        self.store.seed_pull(limited, "e" * 40)
+        for index, sha in enumerate(("b" * 40, "c" * 40, "d" * 40)):
+            self.store.comments[limited].append(
+                summary_comment(sha, unresolved=True, comment_id=920 + index, created=NOW + timedelta(minutes=index))
+            )
+        fourth = self.cursor.request_review(limited)
+        self.assertEqual(fourth["error"]["code"], "review_limit")
+        self.assertEqual(fourth["error"]["details"]["round_limit"], MAX_REVIEW_ROUNDS)
+        self.assertFalse(any(item["body"] == REVIEW_COMMENT for item in self.store.comments[limited]))
 
 
 class RestClientTests(unittest.TestCase):
