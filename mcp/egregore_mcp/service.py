@@ -362,10 +362,10 @@ class CoordinationService:
         hours = self._hours(lease_hours)
         if isinstance(hours, dict):
             return hours
-        refusal = self._claim_refusal(issue)
+        state = coord.assess_lease(comments, self._aware_now())
+        refusal = self._claim_refusal(issue, state)
         if refusal:
             return refusal
-        state = coord.assess_lease(comments, self._aware_now())
         if state.status == "active" and state.agent == self.agent:
             return ok(
                 {
@@ -786,14 +786,17 @@ class CoordinationService:
             return self._not_holding(state)
         return issue, state
 
-    def _claim_refusal(self, issue: Mapping[str, object]) -> dict[str, object] | None:
+    def _claim_refusal(self, issue: Mapping[str, object], lease: coord.LeaseState) -> dict[str, object] | None:
         if coord.is_pull_request(issue):
             return err("invalid_input", "claim_task applies to issues, not pull requests.")
         if str(issue.get("state") or "open").lower() == "closed":
             return err("not_claimable", "This issue is closed. claim_task does not post.")
+        labels = coord.label_names(issue.get("labels") or [])
+        title = str(issue.get("title") or "")
+        if "type:task" not in labels or coord.kind_from_title(title) != "task":
+            return err("not_claimable", "claim_task only claims open type:task issues.")
         if self._needs_owner(issue):
             return err("not_claimable", "This issue is waiting on the owner. claim_task does not override that.")
-        labels = coord.label_names(issue.get("labels") or [])
         if "status:done" in labels:
             return err("not_claimable", "This issue is already done.")
         if "status:blocked" in labels:
@@ -805,6 +808,15 @@ class CoordinationService:
             return err(
                 "not_claimable",
                 "This issue is waiting on review. claim_task does not clear that.",
+            )
+        ready = "status:ready" in labels
+        held = "status:claimed" in labels or "status:in-progress" in labels
+        expired_hold = held and lease.status == "expired"
+        live_hold = held and lease.status == "active"
+        if not ready and not expired_hold and not live_hold:
+            return err(
+                "not_claimable",
+                "claim_task only claims status:ready work, or claimed or in-progress work whose lease has expired.",
             )
         role = self._expected_role(issue)
         if role and role != "any" and role != self.agent:

@@ -316,6 +316,32 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("https://github.com/AStrasler/weather-intelligence", weather_access)
         self.assertNotIn("AStrasler/Egeregore", weather_access)
 
+    def test_only_ready_or_expired_tasks_are_claimable(self) -> None:
+        cases = (
+            ("[Evidence]: A note", ["type:evidence"], "Saw the branch."),
+            ("[Handoff]: Next step", ["type:handoff", "status:ready", "agent:codex"], "### To\n\ncodex\n"),
+            ("[Review]: Check the pull request", ["type:review", "status:ready"], "### Pull request\n\n#14\n"),
+            ("[Decision]: Merge the server", ["type:decision", "status:needs-owner"], decision_body()),
+            ("[Task]: No status yet", ["type:task"], task_body()),
+        )
+        for title, labels, body in cases:
+            number = self.store.seed_issue(title=title, body=body, labels=labels)
+            refused = self.cursor.claim_task(number)
+            self.assertEqual(refused["error"]["code"], "not_claimable", title)
+            self.assertEqual(self.store.list_comments(number), [], title)
+            self.assertNotIn("status:claimed", self.store.label_names(number), title)
+            self.assertNotIn("agent:cursor", self.store.label_names(number), title)
+
+        self.cursor.claim_task(self.number, 1)
+        self.cursor.post_progress(self.number, "Server is up.", "Keep going.")
+        self.assertIn("status:in-progress", self.store.label_names(self.number))
+        self.clock.when = NOW + timedelta(hours=2)
+        taken = self.codex.claim_task(self.number, 2)
+        self.assertTrue(taken["ok"], taken)
+        self.assertEqual(taken["result"]["lease"]["status"], "active")
+        self.assertEqual(taken["result"]["lease"]["agent"], "codex")
+        self.assertIn("status:claimed", self.store.label_names(self.number))
+
     def test_closed_issue_is_not_claimable(self) -> None:
         number = self.store.seed_issue(
             title="[Task]: Already finished",
