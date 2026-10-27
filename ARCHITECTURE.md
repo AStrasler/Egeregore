@@ -43,7 +43,7 @@ Workflows use `GITHUB_TOKEN` with the `permissions:` block in each file. They us
 2. The agent who will do it **claims** the task.
 3. Coding happens in the project repository Aaron already opened to that agent. Cursor opens a pull request there.
 4. Cursor links the pull request from the task. Codex's GitHub app reviews the pull request. An issue mention does not start that review.
-5. Aaron merges. The agent who opened the pull request does not merge it. While the merge is waiting, the task is `status:needs-owner`.
+5. On a pass, open an owner-decision issue linking the task and the pull request, and set the task to `status:needs-owner`. Aaron merges. The agent who opened the pull request does not merge it.
 6. Grokbot records **evidence** and moves the task to `status:done`.
 
 A small update can be a progress comment on the task. Open a separate evidence issue for a milestone or for completion.

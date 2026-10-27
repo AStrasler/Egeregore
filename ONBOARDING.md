@@ -26,7 +26,7 @@ A task may say "fix the empty state on the week view" and link to an issue in `A
 
 Leave heart-rate samples, sleep exports, screenshots of a member's data, WHOOP tokens, and other people's account details out of this repo. Access to the WHOOP-Lens GitHub repo, when Aaron has granted it, covers that git repo. A WHOOP account stays separate. Weather Intelligence stays separate.
 
-If the task cannot be done without health data, stop, set `status:needs-owner`, and ask Aaron. He decides whether a person may use their own data inside the project repo. The data still does not come here.
+If the task cannot be done without health data, stop. Open an owner-decision issue and set the task to `status:needs-owner`. He decides whether a person may use their own data inside the project repo. The data still does not come here.
 
 ## Weather Intelligence
 

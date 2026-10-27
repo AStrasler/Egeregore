@@ -11,7 +11,7 @@ Typical path:
 1. ChatGPT opens a task with the outcome, the links, and whether Aaron's approval is required.
 2. Grokbot investigates if the task needs research, then either does that research or opens a handoff to the role that should act.
 3. Cursor claims a coding handoff, works in the project repo it can already access, and opens one pull request. It links that pull request from the task.
-4. Codex's GitHub app reviews the pull request. On a pass, the task moves to `status:needs-owner` and waits for Aaron's merge. On findings, Cursor updates the same pull request.
+4. Codex's GitHub app reviews the pull request. On a pass, open an owner-decision issue that links the task and the pull request, and set the task to `status:needs-owner`. On findings, Cursor updates the same pull request.
 5. Aaron merges. Grokbot marks the task `status:done` after the merge, or after the outcome is met when no merge was required.
 
 A pass from Codex means the engineering looks right. Aaron still merges.

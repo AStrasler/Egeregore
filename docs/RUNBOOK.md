@@ -4,7 +4,7 @@
 
 This is the day-to-day procedure. Labels, lease text, and the settings reference stay in [OPERATIONS.md](../OPERATIONS.md). Roles stay in [AGENTS.md](../AGENTS.md). Data rules stay in [SECURITY.md](../SECURITY.md).
 
-Phase 2 exercised claims, leases, hygiene, and a `Decision:` line on issue #2. Phase 3 is issue #7 and pull request #8: Cursor claimed the task, opened the pull request, `CI / test` passed, and `chatgpt-codex-connector[bot]` finished with no findings and a 👍. The pull request is waiting for Aaron to merge. Those issues are evidence. They are not a second copy of this guide.
+Phase 2 exercised claims, leases, hygiene, and a `Decision:` line on issue #2. Phase 3 is issue #7 and pull request #8: Cursor claimed the task, opened the pull request, `CI / test` passed, and `chatgpt-codex-connector[bot]` finished with no findings and a 👍. Issue #7 was then labeled `status:needs-owner`. It has no owner-decision issue. [AGENTS.md](../AGENTS.md) still requires that issue before a merge to a default branch. Those issues are evidence. They are not a second copy of this guide.
 
 ## 1. Intake lifecycle
 
@@ -21,7 +21,7 @@ Use the forms already in `.github/ISSUE_TEMPLATE/`. Blank issues are disabled. T
 Classify before opening:
 
 - Approval needed is `yes` only when work cannot start until Aaron acts. Open an owner decision, not a task. Hygiene adds `status:needs-owner` to a task whose Approval needed line starts with `yes`, and it removes `status:ready`.
-- A coding task whose merge waits until the end uses Approval needed `no`. Aaron's merge is the last step, not a second issue.
+- A coding task uses Approval needed `no` while the work is still the agent's to do. When the next step is a merge to a default branch, open the owner-decision issue in Reviews. The task is not that issue.
 - Search open issues for the same project and outcome first. Section 4 is the duplicate rule.
 
 Then:
@@ -39,7 +39,7 @@ A pass is that summary for the current head, plus the 👍. The other reply this
 
 Skip a review-request issue for a pull request in this repo. The form can record a link. An issue reply is not the review. Leave `status:needs-review` only while a pull-request review is still running, then move the task when the bot finishes.
 
-After a 👍 whose summary names the current head and reports no unresolved findings, set the task to `status:needs-owner` and `agent:aaron`, release the lease, and stop. Aaron merges.
+After a 👍 whose summary names the current head and reports no unresolved findings, stop and open one owner-decision issue. Decision type is `merge`. The Request links the task and the pull request. The form sets `status:needs-owner`, `agent:aaron`, and the assignee. Set the task to `status:needs-owner` and `agent:aaron`, release the task lease, and stop. [AGENTS.md](../AGENTS.md) requires that issue before a merge to a default branch. The task label keeps lease watch from moving the task back to `status:ready`. It does not replace the decision issue. Aaron merges. Filing the issue does not grant the merge.
 
 When Codex comments findings, Cursor pushes fixes to the same pull request and comments `@codex review` once. A later push is not in the trigger list from pull request #8. Section 4 caps how many times to ask.
 
@@ -54,7 +54,7 @@ Set `status:done` and release the lease when all of these are true:
 
 Grokbot or Aaron closes the issue after the `status:done` label is on. Closing without that label leaves the board unclear.
 
-Set `status:needs-owner` before releasing a task that is waiting on Aaron. Lease watch turns a released `status:claimed` or `status:in-progress` issue back to `status:ready`. It leaves `status:needs-owner` in place.
+Set the task to `status:needs-owner` before releasing it when an owner-decision issue is open for it. Lease watch turns a released `status:claimed` or `status:in-progress` issue back to `status:ready`. It leaves `status:needs-owner` in place.
 
 ## 2. Stalled work, expired leases, and blocked handoffs
 
@@ -66,7 +66,7 @@ Nothing in this repo polls on a timer except lease watch. Grokbot checks the boa
 | Those two statuses, lease missing, expired, released, over 24 hours, or with no known agent | Reclaimable | Read the last Progress comment. Reclaim, or leave `status:ready`. Do not open a second pull request |
 | `lease:expired` beside `status:ready` | The backstop already ran | Same as a reclaim. Remove `lease:expired` when claiming |
 | `status:blocked` | Waiting on something other than Aaron | One comment must name the unblocker. If it does not, ask once |
-| `status:needs-owner` | Waiting on Aaron | Stop. One ask is enough |
+| `status:needs-owner` | Waiting on Aaron | Stop. The owner-decision issue is the ask |
 | `status:needs-review` after the lease is gone | Not swept by lease watch | Read the pull request. Move on as in the review rules. Issue #2 is this shape: `status:needs-review`, `lease:expired`, `agent:codex`, after an issue mention that Codex did not answer |
 
 Lease watch is `.github/workflows/lease-watch.yml`. It runs daily at 12:17 UTC and on `workflow_dispatch`. It reads open issues, skips pull requests, and relabels only `status:claimed` and `status:in-progress`. It posts one overlap warning per live lease and one expiry comment per marker. It does not claim, delete branches, or close pull requests. GitHub may delay or skip the cron. Phase 2 ran it with `workflow_dispatch`, including Actions runs 40548511242, 40548792034, and 40549228229. The scheduled cron was not part of that test. Reclaim from the comments without waiting.
@@ -75,7 +75,7 @@ On `main`, a run that only sees active leases prints nothing. Pull request #8 ad
 
 Dispatch lease watch when a claimed or in-progress label is still up after the lease ended and the next reader would take the wrong task. Reclaiming does not need the relabel. Do not dispatch on a timer.
 
-A blocked handoff stays blocked until the comment's unblocker happens. If the missing piece is repository access, a credential, or a Codex cloud environment, move it to `status:needs-owner` or open one owner decision. Do not leave it on `status:needs-review`.
+A blocked handoff stays blocked until the comment's unblocker happens. If the missing piece is repository access, a credential, or a Codex cloud environment, open one owner-decision issue and set the task to `status:needs-owner`. Do not leave it on `status:needs-review`.
 
 Unresolved Codex findings are the bot's review comments on the pull request whose summary still has `has_unresolved_findings` for the current head. A 👍 on an older commit does not clear a newer head. The summary names the commit it reviewed.
 
@@ -102,12 +102,12 @@ Creating a Codex cloud environment is his action on his Codex account. Pull-requ
 
 Before opening an issue, search this repo's open issues for the same project and the same outcome. If one exists, comment on it. Use the existing `duplicate` label when closing a second copy. Before opening a pull request, look for an open pull request on the same task and push to that branch.
 
-One owner decision per request. A task already labeled `status:needs-owner` with the pull request linked is the merge ask. A second decision issue repeats it.
+One owner-decision issue per request. Before opening one, search open `type:decision` issues for the same pull request or the same access ask. A second decision issue for that request is a duplicate. Set the task to `status:needs-owner` when you open the decision issue. The task label does not replace it.
 
 ### Noise
 
 - One Progress comment when the state changes. Commit-by-commit comments are noise.
-- Do not mention `@codex` on an issue or in a pull request description. Pull request #9's description did, and the bot answered with the cloud-environment reply. Do not mention `@AStrasler` to request a merge the open pull request already shows.
+- Do not mention `@codex` on an issue or in a pull request description. Pull request #9's description did, and the bot answered with the cloud-environment reply. The owner-decision form assigns `@AStrasler`. That assignment is the notification. Do not also mention him on the pull request.
 - The owner-decision form assigns `@AStrasler`. Other forms leave assignees empty. Do not add assignees.
 - Hygiene, lease, and decision notes are keyed so the workflow updates or skips. Do not reply to `github-actions[bot]`, and do not treat its comment as a claim.
 - Do not dispatch lease watch because the last run was quiet.
@@ -118,7 +118,7 @@ Stop when Codex has reacted 👍 and the summary for the current head reports no
 
 Otherwise allow three completed Codex reviews on that pull request. A round is one completed review of a new head. Commenting `@codex review` again on the same commit is not a new round.
 
-After a third completed review that still has findings, stop. Set `status:needs-owner` and say what is still open. Aaron decides whether to continue, narrow the task, or close it. Do not post a fourth `@codex review`.
+After a third completed review that still has findings, stop. Open one owner-decision issue linking the task and the pull request, set the task to `status:needs-owner`, and name the remaining findings. Aaron decides whether to continue, narrow the task, or close it. Do not post a fourth `@codex review`.
 
 ### Known limitations
 
@@ -147,6 +147,7 @@ All four roles currently post as `@AStrasler`. `github-actions[bot]` and `chatgp
 | Claim, renew, release, or reclaim a lease. Post Progress or Evidence. Change status labels on the issue it holds | The agent in that role |
 | Research or open a pull request in a project repo Aaron has already granted | The agent that already has that access |
 | Ask Codex to review by opening a pull request or commenting `@codex review` on it | Cursor, or the role that opened the pull request |
+| Ask Aaron to merge: open one owner-decision issue that links the task and the pull request, and set the task to `status:needs-owner` | The agent that holds the task |
 | Run lease watch with `workflow_dispatch` | An agent that can start Actions. This does not claim the issue |
 | Merge to a default branch, in this repo or a project repo | Aaron |
 | Deploy, release, or change production configuration | Aaron |
@@ -180,6 +181,6 @@ Ranked by practical value for regular use of this repo. Costs are Aaron's time a
 | 6 | Have issue hygiene copy Project, Role, and Priority onto labels | The board matches the form | A small, careful change to the hygiene command. Claimers can add the labels today |
 | 7 | Make this repo private | Coordination titles leave the public web | His checklist in SECURITY.md. History that was public stays disclosed. Private Actions minutes come from the GitHub Pro quota cited there. The workflow does not get better |
 
-Merge pull request #8 when he is satisfied with it. That lands the lease-watch summary and the hygiene blank-line fix. It is the open Phase 3 pilot, not a new stage.
+Pull request #8 still needs an owner-decision issue that links issue #7 and the pull request before he merges it. That merge lands the lease-watch summary and the hygiene blank-line fix. It is the open Phase 3 pilot, not a new stage.
 
 Skip required up-to-date branches, a new MCP server, and any always-on process. The practical gap is a separate login, and Aaron merging.
