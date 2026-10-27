@@ -47,7 +47,7 @@ _PULL_URL_RE = re.compile(
     re.IGNORECASE,
 )
 _NO_PULL_RE = re.compile(
-    r"\b(no pull request|without a pull request|no merge|documentation only|docs only|research only)\b",
+    r"\b(without a pull request|no pull request|no pr|documentation only|docs only|research only)\b",
     re.IGNORECASE,
 )
 _WANTS_PULL_RE = re.compile(r"\bpull request\b", re.IGNORECASE)
@@ -992,8 +992,13 @@ class CoordinationService:
             return "required"
         sections = coord.sections(body)
         described = "\n".join(
-            sections.get(name, "") for name in ("Outcome", "Context", "Out of scope")
+            sections.get(name, "")
+            for name in ("Outcome", "Context", "Out of scope", "Done so far", "Next action")
         )
+        # Waiver phrases are removed before this search, so "no pull request" is not a
+        # requirement. An explicit request still wins over a waiver, including "no merge".
+        if _WANTS_PULL_RE.search(_NO_PULL_RE.sub(" ", described)):
+            return "required"
         if _NO_PULL_RE.search(described):
             return "waived"
         project = coord.first_line(sections.get("Project")).lower()

@@ -1110,6 +1110,65 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("status:done", self.store.label_names(number))
         self.assertEqual(coord.assess_lease(self.store.list_comments(number), NOW).status, "released")
 
+    def test_status_done_refuses_a_required_task_when_out_of_scope_says_no_merge(self) -> None:
+        number = self._fresh_claim(
+            task_body(
+                outcome="Ship the server in a pull request.",
+                context="Implementation notes for the MCP server.",
+                out_of_scope="No merge and no deploy.",
+            )
+        )
+        self.store.create_comment(number, "## Evidence\n\nThe branch is ready.\n")
+        before = len(self.store.list_comments(number))
+        refused = self.cursor.release_task(number, "done", "no merge does not waive the pull request")
+        self.assertEqual(refused["error"]["code"], "not_done")
+        self.assertIn("no pull request URL or number is linked", refused["error"]["message"])
+        self.assertEqual(len(self.store.list_comments(number)), before)
+        self.assertNotIn("status:done", self.store.label_names(number))
+        self.assertEqual(coord.assess_lease(self.store.list_comments(number), NOW).status, "active")
+
+    def test_status_done_accepts_a_handoff_whose_next_action_needs_no_pull_request(self) -> None:
+        source = self._fresh_claim()
+        handed = self.cursor.handoff_task(
+            source,
+            "codex",
+            "The note is drafted.",
+            "Research only. No pull request.",
+            "File the research note",
+        )
+        self.assertTrue(handed["ok"], handed)
+        number = handed["result"]["handoff_issue"]
+        claimed = self.codex.claim_task(number)
+        self.assertTrue(claimed["ok"], claimed)
+        self.store.create_comment(number, "## Evidence\n\nThe note is filed.\n")
+        finished = self.codex.release_task(number, "done", "research handoff is done")
+        self.assertTrue(finished["ok"], finished)
+        self.assertEqual(finished["result"]["status"], "status:done")
+        self.assertIn("status:done", self.store.label_names(number))
+        self.assertEqual(coord.assess_lease(self.store.list_comments(number), NOW).status, "released")
+
+    def test_status_done_refuses_a_handoff_whose_next_action_requires_a_pull_request(self) -> None:
+        source = self._fresh_claim()
+        handed = self.cursor.handoff_task(
+            source,
+            "codex",
+            "The branch is open.",
+            "Open a pull request for the server.",
+            "Implement the server",
+        )
+        self.assertTrue(handed["ok"], handed)
+        number = handed["result"]["handoff_issue"]
+        claimed = self.codex.claim_task(number)
+        self.assertTrue(claimed["ok"], claimed)
+        self.store.create_comment(number, "## Evidence\n\nThe branch is ready.\n")
+        before = len(self.store.list_comments(number))
+        refused = self.codex.release_task(number, "done", "the pull request was not opened")
+        self.assertEqual(refused["error"]["code"], "not_done")
+        self.assertIn("no pull request URL or number is linked", refused["error"]["message"])
+        self.assertEqual(len(self.store.list_comments(number)), before)
+        self.assertNotIn("status:done", self.store.label_names(number))
+        self.assertEqual(coord.assess_lease(self.store.list_comments(number), NOW).status, "active")
+
     def test_review_request_rejects_closed_pulls_and_duplicate_heads(self) -> None:
         closed = 40
         self.store.seed_pull(closed, HEAD, state="closed", merged=False)
