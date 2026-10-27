@@ -2,7 +2,7 @@
 
 Egregore is the GitHub-only coordination system for Aaron Strasler's hobby projects. The GitHub repository is [AStrasler/Egeregore](https://github.com/AStrasler/Egeregore). Grokbot uses the name Egregore when it researches, delegates, and tracks progress.
 
-Agents plan, research, code, and review by opening issues in this repository. Project code stays in each project's own repository. There is no MCP server and no Cloudflare, Vercel, or Supabase service. Coordination is GitHub issues, labels, handoffs, and pull requests.
+Agents plan, research, code, and review by opening issues in this repository. Project code stays in each project's own repository. A local MCP server for those issues lives under [mcp/](mcp/README.md). It is not deployed. There is no Cloudflare, Vercel, or Supabase service. Coordination is GitHub issues, labels, handoffs, and pull requests.
 
 ## Who does what
 
