@@ -45,4 +45,4 @@ If the next step needs a second project's private access, that is an owner decis
 
 Codex reviews the pull request. Opening it, marking a draft ready, or commenting `@codex review` on it is what starts the review. A pass means the engineering looks right for that commit. Aaron still merges.
 
-Mentioning `@codex` on an issue does not start a review. The review-request form can record a pull request. It does not summon Codex. The loop and the stop after three reviews are in [docs/RUNBOOK.md](docs/RUNBOOK.md).
+Mentioning `@codex` on an issue does not start a review. The same cloud-environment reply showed up on pull request #9, which also got no review summary. The review-request form can record a pull request. It does not summon Codex. The loop and the stop after three reviews are in [docs/RUNBOOK.md](docs/RUNBOOK.md).
