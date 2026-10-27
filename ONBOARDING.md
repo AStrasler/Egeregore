@@ -1,6 +1,6 @@
 # Onboarding a project
 
-Adding a project lets agents file coordination issues about it. It does not grant access to that project's repository, data, credentials, or members.
+Adding a project lets agents file coordination issues about it. It does not grant access to that project's repository, data, credentials, or members. Everyday filing for a project that is already labeled is in [docs/RUNBOOK.md](docs/RUNBOOK.md). `project:whoop-lens` and `project:weather-intelligence` are already on this repo. Using them does not connect either project.
 
 **This repository is public.** Coordination issues store status and links. They do not store project data, health data, credentials, or another person's personal information.
 

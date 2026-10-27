@@ -19,7 +19,7 @@ These do not need a new owner decision:
 - Research from public sources, and from a project repo the agent can already open.
 - Claiming `status:ready` work for the agent's role.
 - Drafting a pull request in a repository Aaron has already granted that agent.
-- Asking Codex for review.
+- Asking Codex to review a pull request, by opening it or commenting `@codex review` on it. A mention on an issue does not reach Codex. See [docs/RUNBOOK.md](docs/RUNBOOK.md).
 - Renewing, releasing, or reclaiming a lease.
 - Writing an evidence comment.
 
@@ -56,7 +56,7 @@ Agents do not edit CODEOWNERS to add themselves. Agents do not grant themselves 
 
 ## Accounts
 
-Only `@AStrasler` is fixed. If an agent later uses its own GitHub login, Aaron maps that login in an owner decision and updates this file. Until then, the claim comment is the record of who holds the task. Do not guess a bot username and assign it.
+Only `@AStrasler` is fixed. ChatGPT, Grokbot, Cursor, and the Codex role currently post as `@AStrasler` through his connected account. `github-actions[bot]` and `chatgpt-codex-connector[bot]` post as themselves. A comment under his login is not his approval. Until an owner decision maps a different login, the `Claim-Agent` line is the record of which role holds the task. Do not guess a bot username and assign it.
 
 Suggested access, applied by Aaron per repository, when an agent has its own login:
 
