@@ -1,0 +1,30 @@
+name: Lease watch
+
+"on":
+  schedule:
+    # Once a day. GitHub may delay scheduled runs. Agents reclaim from comments without waiting.
+    - cron: "17 12 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: lease-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+      - name: Flag expired claims
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python3 scripts/coordination.py check-leases --apply

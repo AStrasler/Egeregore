@@ -1,0 +1,64 @@
+name: Review request
+description: Ask Codex to review engineering work. This does not merge it.
+title: "[Review]: "
+labels:
+  - "type:review"
+  - "status:needs-review"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This repository is public. It stores coordination information only. Do not put project data, health data, credentials, or another person's personal information here.
+
+        Codex reviews. Aaron merges. A passing review is not merge approval.
+  - type: dropdown
+    id: project
+    attributes:
+      label: Project
+      options:
+        - coordination
+        - whoop-lens
+        - weather-intelligence
+        - other
+    validations:
+      required: true
+  - type: input
+    id: project-slug
+    attributes:
+      label: Project slug
+      description: Required when Project is other.
+      placeholder: whoop-lens
+  - type: input
+    id: pull-request
+    attributes:
+      label: Pull request
+      description: URL of the pull request to review.
+      placeholder: https://github.com/AStrasler/Egeregore/pull/1
+    validations:
+      required: true
+  - type: textarea
+    id: verify
+    attributes:
+      label: What to verify
+      description: The behavior or diff Codex should check.
+    validations:
+      required: true
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Risk
+      options:
+        - none
+        - auth or permissions
+        - data handling
+        - deployment
+        - other
+    validations:
+      required: true
+  - type: checkboxes
+    id: data-boundary
+    attributes:
+      label: Data boundary
+      options:
+        - label: "Coordination only. No project data, health data, credentials, or another person's personal information."
+          required: true

@@ -1,0 +1,68 @@
+name: Evidence
+description: Progress or completion record. Link the work. Do not paste data.
+title: "[Evidence]: "
+labels:
+  - "type:evidence"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This repository is public. It stores coordination information only. Do not put project data, health data, credentials, or another person's personal information here.
+
+        Use this form for a milestone or a completion record. A short progress comment on the task issue is enough for a mid-task update.
+  - type: dropdown
+    id: project
+    attributes:
+      label: Project
+      options:
+        - coordination
+        - whoop-lens
+        - weather-intelligence
+        - other
+    validations:
+      required: true
+  - type: input
+    id: project-slug
+    attributes:
+      label: Project slug
+      description: Required when Project is other.
+      placeholder: whoop-lens
+  - type: input
+    id: related-issue
+    attributes:
+      label: Related issue
+      placeholder: "#12"
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What was checked, found, or finished.
+    validations:
+      required: true
+  - type: textarea
+    id: links
+    attributes:
+      label: Links
+      description: Pull requests, commits, docs, or issue comments.
+    validations:
+      required: true
+  - type: dropdown
+    id: result
+    attributes:
+      label: Result
+      options:
+        - progress
+        - blocked
+        - ready-for-review
+        - complete
+    validations:
+      required: true
+  - type: checkboxes
+    id: data-boundary
+    attributes:
+      label: Data boundary
+      options:
+        - label: "Coordination only. No project data, health data, credentials, or another person's personal information."
+          required: true

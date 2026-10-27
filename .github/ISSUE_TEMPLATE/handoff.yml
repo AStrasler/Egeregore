@@ -1,0 +1,92 @@
+name: Handoff
+description: Pass the next step to another agent. This does not grant access.
+title: "[Handoff]: "
+labels:
+  - "type:handoff"
+  - "status:ready"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This repository is public. It stores coordination information only. Do not put project data, health data, credentials, or another person's personal information here.
+
+        A handoff changes who does the next step. It does not change GitHub permissions or share project data.
+  - type: dropdown
+    id: project
+    attributes:
+      label: Project
+      options:
+        - coordination
+        - whoop-lens
+        - weather-intelligence
+        - other
+    validations:
+      required: true
+  - type: input
+    id: project-slug
+    attributes:
+      label: Project slug
+      description: Required when Project is other.
+      placeholder: whoop-lens
+  - type: dropdown
+    id: from-role
+    attributes:
+      label: From
+      options:
+        - chatgpt
+        - grokbot
+        - cursor
+        - codex
+        - aaron
+    validations:
+      required: true
+  - type: dropdown
+    id: to-role
+    attributes:
+      label: To
+      options:
+        - chatgpt
+        - grokbot
+        - cursor
+        - codex
+        - aaron
+    validations:
+      required: true
+  - type: input
+    id: related-issue
+    attributes:
+      label: Related issue
+      description: Issue number or URL this handoff continues.
+      placeholder: "#12"
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: Done so far
+      description: Facts and links the next agent can verify.
+    validations:
+      required: true
+  - type: textarea
+    id: next-action
+    attributes:
+      label: Next action
+      description: The single next step.
+    validations:
+      required: true
+  - type: textarea
+    id: access
+    attributes:
+      label: Access
+      description: Keep the sentence that this handoff does not grant access. Name the repo where the work happens, and whether Aaron has already granted access there.
+      value: |
+        This handoff does not grant repository access, data access, credentials, or permission to merge or deploy.
+    validations:
+      required: true
+  - type: checkboxes
+    id: data-boundary
+    attributes:
+      label: Data boundary
+      options:
+        - label: "Coordination only. No project data, health data, credentials, or another person's personal information."
+          required: true

@@ -1,0 +1,101 @@
+name: Task
+description: Work an agent can claim. Coordination information only.
+title: "[Task]: "
+labels:
+  - "type:task"
+  - "status:ready"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This repository is public. It stores coordination information only. Do not put project data, health data, credentials, or another person's personal information here.
+
+        Routine research and coordination can proceed without a new approval. Merges, deploys, credentials, permissions, health data, and new project access wait for Aaron.
+  - type: dropdown
+    id: project
+    attributes:
+      label: Project
+      description: Use other only when the slug is not listed yet. That choice does not grant access to the project.
+      options:
+        - coordination
+        - whoop-lens
+        - weather-intelligence
+        - other
+    validations:
+      required: true
+  - type: input
+    id: project-slug
+    attributes:
+      label: Project slug
+      description: Required when Project is other. Example, whoop-lens.
+      placeholder: whoop-lens
+  - type: dropdown
+    id: role
+    attributes:
+      label: Role
+      description: Who should pick this up. The label does not grant a GitHub permission.
+      options:
+        - chatgpt
+        - grokbot
+        - cursor
+        - codex
+        - any
+    validations:
+      required: true
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: Urgent still waits for Aaron when the task needs an owner decision.
+      options:
+        - low
+        - normal
+        - high
+        - urgent
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Outcome
+      description: What will be true when this task is done.
+      placeholder: A pull request is open on the project repo with a test for the empty state.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Links to issues, pull requests, or docs. Link the work. Do not paste exports.
+      placeholder: https://github.com/AStrasler/WHOOP-Lens/issues/1
+    validations:
+      required: true
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: What this task must leave alone.
+    validations:
+      required: true
+  - type: dropdown
+    id: approval
+    attributes:
+      label: Approval needed
+      description: Choose yes for a merge, deploy, credential, permission, health data, or new project access. Open an owner-decision issue and wait.
+      options:
+        - "no"
+        - "yes"
+    validations:
+      required: true
+  - type: checkboxes
+    id: data-boundary
+    attributes:
+      label: Data boundary
+      description: Required. This repository is public.
+      options:
+        - label: "Coordination only. No project data, health data, credentials, or another person's personal information."
+          required: true
+  - type: markdown
+    attributes:
+      value: |
+        Opening this issue does not grant repository access, data access, or approval to merge or deploy. Claim it with the lease comment in OPERATIONS.md.
