@@ -10,8 +10,8 @@ Typical path:
 
 1. ChatGPT opens a task with the outcome, the links, and whether Aaron's approval is required.
 2. Grokbot investigates if the task needs research, then either does that research or opens a handoff to the role that should act.
-3. Cursor claims a coding handoff, works in the project repo it can already access, and opens a pull request. It then opens a review request that links the pull request.
-4. Codex claims the review. On a pass, Codex posts a review comment and an evidence note. On problems, Codex sets the coding task back to `status:ready` or `status:in-progress` and names what to change.
+3. Cursor claims a coding handoff, works in the project repo it can already access, and opens one pull request. It links that pull request from the task.
+4. Codex's GitHub app reviews the pull request. On a pass, open an owner-decision issue that links the task and the pull request, and set the task to `status:needs-owner`. On findings, Cursor updates the same pull request.
 5. Aaron merges. Grokbot marks the task `status:done` after the merge, or after the outcome is met when no merge was required.
 
 A pass from Codex means the engineering looks right. Aaron still merges.
@@ -43,14 +43,6 @@ If the next step needs a second project's private access, that is an owner decis
 
 ## Reviews
 
-The review-request form is the handoff to Codex. Codex comments on the review issue:
+Codex reviews the pull request. Opening it, marking a draft ready, or a pull request comment whose body is `@codex review` is what starts the review. A pass means the review receipt names that pull request's current head SHA and reports no findings. Aaron still merges. The merge still needs an owner-decision issue.
 
-```text
-## Review
-Claim-Agent: codex
-Result: pass
-Notes: Checked the diff and the test run linked above.
-Data-Boundary: coordination-only
-```
-
-Use `Result: changes` when the work should go back to Cursor. Codex releases the review lease when the comment is posted. Cursor re-claims the coding task if its lease has ended.
+Mentioning `@codex` on an issue does not start a review. The same cloud-environment reply showed up on pull request #9, which also got no review summary. The review-request form can record a pull request. It does not summon Codex. The loop and the stop after three reviews are in [docs/RUNBOOK.md](docs/RUNBOOK.md).

@@ -42,8 +42,8 @@ Workflows use `GITHUB_TOKEN` with the `permissions:` block in each file. They us
 1. ChatGPT or Grokbot opens a **task** in this repo.
 2. The agent who will do it **claims** the task.
 3. Coding happens in the project repository Aaron already opened to that agent. Cursor opens a pull request there.
-4. Cursor opens a **review request** here and links the pull request. Codex reviews.
-5. Aaron merges. The agent who opened the pull request does not merge it.
+4. Cursor links the pull request from the task. Codex's GitHub app reviews the pull request. An issue mention does not start that review.
+5. On a pass, open an owner-decision issue linking the task and the pull request, and set the task to `status:needs-owner`. Aaron merges. The agent who opened the pull request does not merge it.
 6. Grokbot records **evidence** and moves the task to `status:done`.
 
 A small update can be a progress comment on the task. Open a separate evidence issue for a milestone or for completion.
@@ -62,10 +62,11 @@ stateDiagram-v2
   inProgress --> blocked
   inProgress --> needsReview
   inProgress --> needsOwner
-  needsReview --> inProgress: changes requested
-  needsReview --> done: review recorded
-  needsOwner --> ready: Aaron approves more work
-  needsOwner --> done: Aaron rejects or closes it
+  needsReview --> inProgress: Codex requests changes
+  needsReview --> needsOwner: Codex passes and a merge is waiting
+  needsReview --> done: Codex passes and no merge is required
+  needsOwner --> ready: Aaron wants more work
+  needsOwner --> done: Aaron merges, rejects, or closes it
   blocked --> ready
   done --> [*]
 ```
@@ -74,16 +75,16 @@ stateDiagram-v2
 
 ## Identity
 
-The only GitHub login this system treats as the owner is `@AStrasler`. The other agents identify themselves with `Claim-Agent: chatgpt`, `grokbot`, `cursor`, `codex`, or `aaron`. Those words are role names. This repo does not invent GitHub accounts for them.
+The only GitHub login this system treats as the owner is `@AStrasler`. The other agents identify themselves with `Claim-Agent: chatgpt`, `grokbot`, `cursor`, `codex`, or `aaron`. Those words are role names. Today those four roles post as `@AStrasler`. This repo does not invent GitHub accounts for them.
 
-`github-actions[bot]` posts hygiene, lease, and decision notes. The agents are the four roles above, plus Aaron. The bot does not claim work.
+`github-actions[bot]` posts hygiene, lease, and decision notes. `chatgpt-codex-connector[bot]` posts pull-request reviews. Neither bot claims work.
 
 ## Enforcement
 
-[SECURITY.md](SECURITY.md) lists which controls GitHub enforces and which ones are convention until Aaron turns on branch protection. The short version:
+[SECURITY.md](SECURITY.md) lists which controls GitHub enforces and which ones stay a working rule. The short version:
 
 - Workflow token scopes are enforced by the `permissions:` key.
-- Issue-form fields are enforced in the web UI after this file is on `main` and blank issues are disabled.
+- Issue-form fields are enforced in the web UI. Blank issues are disabled.
 - A comment that starts with `Decision:` is recorded when GitHub says the author is `@AStrasler`. The workflow does not treat that login as verified authorization and does not change labels from it.
-- Code-owner review, required CI, and "agents cannot push to `main`" are enforced only after Aaron applies the settings in [OPERATIONS.md](OPERATIONS.md).
+- The `Protect main` ruleset requires a pull request and the `test` check, and it blocks force pushes and branch deletion. Required approving reviews and code-owner review are off. See [OPERATIONS.md](OPERATIONS.md).
 - The data boundary is a rule plus a checkbox and a credential-pattern comment. GitHub will still store text that a person with write access pastes.

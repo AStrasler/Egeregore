@@ -1,6 +1,6 @@
 # Onboarding a project
 
-Adding a project lets agents file coordination issues about it. It does not grant access to that project's repository, data, credentials, or members.
+Adding a project lets agents file coordination issues about it. It does not grant access to that project's repository, data, credentials, or members. Everyday filing for a project that is already labeled is in [docs/RUNBOOK.md](docs/RUNBOOK.md). `project:whoop-lens` and `project:weather-intelligence` are already on this repo. Using them does not connect either project.
 
 **This repository is public.** Coordination issues store status and links. They do not store project data, health data, credentials, or another person's personal information.
 
@@ -26,7 +26,7 @@ A task may say "fix the empty state on the week view" and link to an issue in `A
 
 Leave heart-rate samples, sleep exports, screenshots of a member's data, WHOOP tokens, and other people's account details out of this repo. Access to the WHOOP-Lens GitHub repo, when Aaron has granted it, covers that git repo. A WHOOP account stays separate. Weather Intelligence stays separate.
 
-If the task cannot be done without health data, stop, set `status:needs-owner`, and ask Aaron. He decides whether a person may use their own data inside the project repo. The data still does not come here.
+If the task cannot be done without health data, stop. Open an owner-decision issue and set the task to `status:needs-owner`. He decides whether a person may use their own data inside the project repo. The data still does not come here.
 
 ## Weather Intelligence
 

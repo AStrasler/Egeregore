@@ -22,21 +22,23 @@ These hold because of GitHub's product behavior or because of a file GitHub read
 | --- | --- |
 | Workflow token scope | The `permissions:` key in each workflow is enforced for `GITHUB_TOKEN`. `CI` is `contents: read`. The other two are `contents: read` and `issues: write`. |
 | No Actions secrets in this design | No workflow reads `secrets.*`. Nothing in this pull request creates a secret. GitHub does not invent one. |
-| Web issue forms | After merge, `.github/ISSUE_TEMPLATE/config.yml` disables blank issues. The web UI then requires the form fields and the data-boundary checkbox. |
+| Web issue forms | `.github/ISSUE_TEMPLATE/config.yml` disables blank issues. The web UI requires the form fields and the data-boundary checkbox. |
 | Owner decision comment | The decision job runs only for a comment whose body starts with `Decision:`. It posts a recorded-decision note when the login is `AStrasler`, and a warning otherwise. It does not change labels. The login is attribution, not a verified authorization. |
 | Separate repositories | A collaborator on this repo is not a collaborator on WHOOP-Lens or Weather Intelligence. GitHub enforces that split. This repo cannot widen it. |
 | Agents cannot promote themselves | Changing collaborators, roles, rulesets, and visibility requires admin. Agent logins are not given admin. |
+| Default-branch ruleset | Ruleset `Protect main` is active on the default branch, with no bypass actors, as of 2026-10-27. It requires a pull request, requires the status check context `test`, and blocks force pushes and branch deletion. Required approving reviews are 0. Code-owner review is off. The branch is not required to be up to date with `main`. |
 
-The CI test fails a pull request that adds `pull_request_target`, `workflow_run`, a broader token permission, or a larger runner. That failure **blocks the merge only after Aaron requires the `CI / test` check**. Until then it is a visible signal.
+The CI test fails a pull request that adds `pull_request_target`, `workflow_run`, a broader token permission, or a larger runner. The `Protect main` ruleset requires the `test` check, so that failure blocks the merge. The block does not prove Aaron personally reviewed the pull request.
 
-## What is convention until Aaron changes settings
+## What stays a working rule
 
-| Control | Until the setting exists |
+The ruleset above is already on. These items stay convention. Changing a setting does not turn a comment into Aaron's approval.
+
+| Control | Working rule |
 | --- | --- |
 | CODEOWNERS | GitHub requests `@AStrasler`. Requiring that review blocks a pull request he authored, including many Cursor runs, because an author cannot approve their own pull request and he is the only code owner. Leave that requirement off. See OPERATIONS.md. On a private personal repo, code-owner rules are part of GitHub Pro. |
-| No direct pushes to `main` | Agents avoid `main`. A push restriction limited to `@AStrasler` stops other users. An agent using his token can still push. |
-| Required CI | Aaron can require the `CI / test` check. That blocks a failing pull request. It does not prove he personally reviewed it. |
-| Leases | Any agent may reclaim after `Lease-Expires`. The daily workflow relabels expired claims when Actions is enabled. GitHub cron can be delayed. Agents do not wait for it. |
+| Agents do not merge | The ruleset allows a green pull request to merge with zero approving reviews. An agent authenticated as `@AStrasler` can press the button. Aaron is the person who merges. |
+| Leases | Any agent may reclaim after `Lease-Expires`. The daily workflow relabels expired claims on `status:claimed` and `status:in-progress` when Actions is enabled. It does not relabel `status:needs-review` or `status:blocked`. GitHub cron can be delayed. Agents do not wait for it. |
 | One status label | Agents replace the previous status label when they change state. GitHub allows several labels at once. |
 | Data boundary | The checkbox and the hygiene comment are backstops. A person with write access can still paste a secret or a health export. The hygiene job looks for common credential shapes and does not echo them. It does not detect health data. |
 | Handoffs and approvals | A handoff, a Codex review, and a `Decision:` comment grant nothing. A comment from `@AStrasler` is a recorded decision. Verified authorization is Aaron performing the merge, setting change, or label change himself. GitHub cannot separate that from an agent on his account. |

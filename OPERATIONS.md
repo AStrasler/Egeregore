@@ -2,7 +2,7 @@
 
 **This repository is public.** It stores coordination information only. Do not put project data, health data, credentials, or another person's personal information here.
 
-Day to day, agents file issues, claim them, and release them. Aaron is involved for the decisions in [AGENTS.md](AGENTS.md). The lease is what makes an interruption recoverable: the claim expires, the notes stay, and the next session continues from the last progress comment.
+Day to day steps are in [docs/RUNBOOK.md](docs/RUNBOOK.md). Aaron is involved for the decisions in [AGENTS.md](AGENTS.md). The lease is what makes an interruption recoverable: the claim expires, the notes stay, and the next session continues from the last progress comment.
 
 ## Labels
 
@@ -17,13 +17,13 @@ One `status:` label at a time. `lease:expired` may sit beside `status:ready` unt
 | `status:needs-review` | Waiting on Codex or another review |
 | `status:needs-owner` | Waiting on Aaron |
 | `status:done` | Outcome recorded |
-| `lease:expired` | A claim lapsed. The issue can be reclaimed |
+| `lease:expired` | A claim lapsed. The issue can be reclaimed. This is the only `lease:` label in the catalog |
 | `agent:chatgpt` `agent:grokbot` `agent:cursor` `agent:codex` `agent:aaron` | Current role |
 | `type:task` `type:handoff` `type:evidence` `type:review` `type:decision` | Issue form |
 | `priority:low` `priority:normal` `priority:high` `priority:urgent` | Ordering hint. Urgent does not skip owner approval |
 | `project:coordination` `project:whoop-lens` `project:weather-intelligence` | Coordination topic only |
 
-GitHub will ignore a label named in a form until the label exists. The default `bug` and `enhancement` labels can stay. Status still comes from `status:*`.
+GitHub will ignore a label named in a form until the label exists. The default `bug` and `enhancement` labels can stay. Status still comes from `status:*`. A live lease is `status:claimed` or `status:in-progress` plus the claim comment. `lease:active` is not a catalog label. Delete it if it appears. It was created without a color or description and does not change who holds a lease.
 
 Create the catalog from a clone of this repo after merge:
 
@@ -47,6 +47,7 @@ Claim, and replace `status:ready` with `status:claimed`. Remove `lease:expired` 
 
 ```text
 ## Claim
+Agent: Grokbot
 Claim-Agent: grokbot
 Claimed-At: 2026-10-27T14:00:00Z
 Lease-Expires: 2026-10-27T20:00:00Z
@@ -59,6 +60,7 @@ Renew before the expiry if the work is still yours:
 
 ```text
 ## Lease renewal
+Agent: Grokbot
 Claim-Agent: grokbot
 Lease-Expires: 2026-10-28T02:00:00Z
 Note: Still reading the task thread
@@ -68,6 +70,7 @@ Release when you stop, finish, or block:
 
 ```text
 ## Lease release
+Agent: Grokbot
 Claim-Agent: grokbot
 Lease-Release: grokbot
 Reason: pausing
@@ -81,6 +84,7 @@ Mid-task progress is a comment on the task issue:
 
 ```text
 ## Progress
+Agent: Cursor
 Claim-Agent: cursor
 Done: Opened the branch and linked it below.
 Next: Add the empty-state test.
@@ -109,7 +113,8 @@ Grokbot checks `status:claimed`, `status:in-progress`, `status:blocked`, and `le
 - A live lease is not stalled.
 - An expired lease is reclaimable. Read the last progress note, then either resume it or leave it `ready` for the role that should continue. Do not assign a second agent to redo finished steps.
 - `status:blocked` needs a comment that says what unblocks it. If that sentence is missing, ask once. Then leave it.
-- `status:needs-owner` waits for Aaron. One decision issue is enough. Do not reclaim it and do not poll him on a timer.
+- `status:needs-owner` waits for Aaron. One owner-decision issue is the handoff. The task label does not replace that issue. Do not reclaim it and do not poll him on a timer.
+- `status:needs-review` stays when a lease ends. Lease watch only rewrites `status:claimed` and `status:in-progress`. A review that never starts, including an `@codex` mention on an issue, sits until someone moves the label. The working review path is the pull request. See [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
 ## Completion
 
@@ -117,7 +122,7 @@ A task is done when all of these are true:
 
 - The outcome in the task is met, or Aaron rejected it.
 - An evidence comment or evidence issue links the result.
-- For code, the pull request link is present, Codex has recorded a review, and Aaron has merged. "Open a pull request" is done when the pull request exists and the review is requested; the merge is a separate owner action.
+- For code, the pull request link is present, Codex has passed that head (a 👍 from `chatgpt-codex-connector[bot]` and a summary with no findings on that commit), and Aaron has merged. Opening the pull request is not completion. The merge is a separate owner action.
 - The lease is released and the status is `status:done`.
 
 Grokbot or Aaron closes the issue. Closing without `status:done` leaves the board unclear, so set the label first.
@@ -137,6 +142,8 @@ Stop the current task when any of these are true:
 
 Before stopping, post Progress or Evidence, then update the status and release the lease.
 
+When the stop is a merge, deploy, credential, permission, visibility change, new project access, health data, or data from another project, open the owner-decision issue required by [AGENTS.md](AGENTS.md) first. For a merge, link the task and the pull request. Set the task to `status:needs-owner`. One decision issue is enough. The task label does not replace it.
+
 ## Workflows
 
 | Workflow | When | Token |
@@ -145,7 +152,7 @@ Before stopping, post Progress or Evidence, then update the status and release t
 | `Issue hygiene` | Issue opened or edited. A separate job runs when a comment starts with `Decision:` | `contents: read`, `issues: write` |
 | `Lease watch` | Daily at 12:17 UTC, or manual `workflow_dispatch` | `contents: read`, `issues: write` |
 
-`workflow_dispatch` on lease watch reruns the flagger. Issue and lease workflows run the code on the default branch, so a pull request cannot change them until Aaron merges it.
+`workflow_dispatch` on lease watch reruns the flagger. Issue and lease workflows run the code on the default branch, so a pull request cannot change them until Aaron merges it. The cron is `17 12 * * *`. Phase 2 ran lease watch with `workflow_dispatch`, including Actions runs 40548511242, 40548792034, and 40549228229. The scheduled cron was not part of that test. Treat the schedule as configured, and expect GitHub to delay or skip a day. Reclaim from the comments either way. Since pull request #8 merged, every run prints one summary line with issues scanned, active, expired, and conflicts warned, including a run that only sees active leases.
 
 The hygiene job comments when required fields, the data-boundary checkbox, or a credential-like string are missing or present. It does not print the issue body. It can add `status:needs-owner`. It does not remove that label.
 
@@ -155,12 +162,12 @@ These workflows are sized for GitHub Pro's private-repo minute quota. See [SECUR
 
 ## Settings Aaron applies
 
-This repository does not apply these. They work while the repo is public and after it is private, because the account is GitHub Pro.
+This repository does not apply these. They work while the repo is public and after it is private, because the account is GitHub Pro. The ruleset in item 4 is already active. Confirm it. A pull request does not recreate it.
 
 1. Merge the coordination pull request. The agent who opened it does not merge it.
 2. Run `scripts/create-labels.sh` from a clone of `main`.
 3. Settings → Actions → General: allow Actions, set workflow permissions to "Read repository contents and packages permissions", leave "allow Actions to create and approve pull requests" off, add no secrets, and do not enable larger runners.
-4. Branch protection or a ruleset on `main`, chosen so a personal GitHub Pro repo can still merge. See [Reviews on a one-person repo](#reviews-on-a-one-person-repo) below. Use: require a pull request, require the `CI / test` status check, and block force pushes and branch deletion. Do not require an approving review count, and do not require code-owner review, while `@AStrasler` is the only code owner. Restricting pushes to `@AStrasler` stops other GitHub users. It does not stop an agent that is authenticated as him.
+4. Keep the active ruleset `Protect main` on the default branch. As of 2026-10-27 it has no bypass actors. It requires a pull request, requires the status check context `test` (the `test` job in `CI`; the Actions UI shows `CI / test`), and blocks force pushes and branch deletion. Required approving reviews are 0. Code-owner review is off. The branch does not have to be up to date with `main` before that check counts. See [Reviews on a one-person repo](#reviews-on-a-one-person-repo) below. This file does not change the ruleset.
 5. If an agent uses its own GitHub login, grant Triage or Write on this repo only. Never Admin. Grant project repos separately, after an owner decision, one repository at a time.
 6. When making the repository private, follow the checklist in [SECURITY.md](SECURITY.md#switching-this-repository-to-private).
 
@@ -176,11 +183,10 @@ His approval does not count on a pull request he opened, so the pull request can
 
 Workable rule while he is the only writer and the only code owner:
 
-- Require a pull request before merging to `main`.
-- Require the `CI / test` status check. CI's failure is then a GitHub block. Until that setting is on, CI is a signal.
-- Block force pushes and branch deletion.
-- Leave required approving reviews off, and leave "Require review from Code Owners" off. `CODEOWNERS` still names him, and GitHub may still request him. The file does not block the merge.
-- Aaron merges after he has read the pull request. That merge is the human check. Agents do not merge. GitHub cannot tell his merge click from an agent using his token, so this remains a convention on top of the pull-request rule.
-- A push restriction limited to `@AStrasler` is worth setting against other users. An agent signed in as him can still push.
+- Require a pull request before merging to `main`. The `Protect main` ruleset does this, with no bypass actors.
+- Require the `test` status check. A failing or missing check blocks the merge. That block does not prove Aaron personally read the pull request.
+- Block force pushes and branch deletion. The same ruleset does this.
+- Leave required approving reviews off, and leave "Require review from Code Owners" off. `CODEOWNERS` still names him, and GitHub may still request him. The file does not block the merge. The ruleset already matches this.
+- Aaron merges after he has read the pull request. That merge is the human check. Agents do not merge. With zero required approvals, an agent authenticated as `@AStrasler` can still press the button. GitHub cannot tell his merge from that session.
 
 If a second GitHub account later has write access, and that account is not the pull request author, he can require one approval from that account. Code-owner review still fails closed when the only code owner authored the pull request. Add another code owner before requiring code-owner review.
