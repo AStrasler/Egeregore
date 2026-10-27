@@ -695,6 +695,35 @@ class ServiceTests(unittest.TestCase):
         assert same is not None
         self.assertEqual(same["error"]["code"], "review_same_head")
 
+    def test_copied_review_state_from_a_human_is_ignored(self) -> None:
+        pull = 70
+        self.store.seed_pull(pull, HEAD)
+        copied = summary_comment(HEAD, unresolved=False, comment_id=950, created=NOW)
+        copied["user"] = {"login": "AStrasler"}
+        receipt = receipt_comment(HEAD, 951, NOW, passed=True)
+        receipt["user"] = {"login": "AStrasler"}
+        self.store.comments[pull].extend([copied, receipt])
+        posted = self.cursor.request_review(pull)
+        self.assertTrue(posted["ok"], posted)
+        self.assertEqual([item["body"] for item in self.store.comments[pull]].count(REVIEW_COMMENT), 1)
+
+        findings = summary_comment(HEAD, unresolved=True, comment_id=952, created=NOW)
+        clear_copy = summary_comment(HEAD, unresolved=False, comment_id=953, created=NOW + timedelta(minutes=5))
+        clear_copy["user"] = {"login": "AStrasler"}
+        clear_receipt = receipt_comment(HEAD, 954, NOW + timedelta(minutes=6), passed=True)
+        clear_receipt["user"] = {"login": "AStrasler"}
+        blocked = review_block([findings, clear_copy, clear_receipt], HEAD)
+        assert blocked is not None
+        self.assertEqual(blocked["error"]["code"], "review_same_head")
+
+    def test_codex_bot_review_state_still_counts(self) -> None:
+        pull = 71
+        self.store.seed_pull(pull, HEAD)
+        self.store.comments[pull].append(summary_comment(HEAD, unresolved=False, comment_id=960, created=NOW))
+        refused = self.cursor.request_review(pull)
+        self.assertEqual(refused["error"]["code"], "review_current")
+        self.assertEqual(len(self.store.list_comments(pull)), 1)
+
     def test_get_tasks_filters_and_skips_pull_requests(self) -> None:
         self.store.seed_pull(4, HEAD, title="[Task]: not an issue")
         self.cursor.claim_task(self.number)
@@ -1168,6 +1197,65 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(len(self.store.list_comments(number)), before)
         self.assertNotIn("status:done", self.store.label_names(number))
         self.assertEqual(coord.assess_lease(self.store.list_comments(number), NOW).status, "active")
+
+    def test_cross_repo_evidence_with_the_same_issue_number_is_rejected(self) -> None:
+        number = self._fresh_claim(
+            task_body(
+                outcome="The runbook paragraph is updated.",
+                context="Implementation notes for the MCP server.",
+                out_of_scope="Documentation only. No pull request.",
+            )
+        )
+        self.store.seed_issue(
+            title="[Evidence]: Other repository",
+            body=(
+                f"AStrasler/WHOOP-Lens/issues/{number}\n"
+                f"https://github.com/AStrasler/WHOOP-Lens/issues/{number}\n"
+                f"AStrasler/WHOOP-Lens#{number}\n"
+            ),
+            labels=["type:evidence"],
+        )
+        before = len(self.store.list_comments(number))
+        refused = self.cursor.release_task(number, "done", "the other repository uses this number")
+        self.assertEqual(refused["error"]["code"], "not_done")
+        self.assertIn("evidence", refused["error"]["message"])
+        self.assertEqual(len(self.store.list_comments(number)), before)
+        self.assertNotIn("status:done", self.store.label_names(number))
+        self.assertEqual(coord.assess_lease(self.store.list_comments(number), NOW).status, "active")
+
+    def test_same_repo_evidence_link_is_accepted(self) -> None:
+        number = self._fresh_claim(
+            task_body(
+                outcome="The runbook paragraph is updated.",
+                context="Implementation notes for the MCP server.",
+                out_of_scope="Documentation only. No pull request.",
+            )
+        )
+        self.store.seed_issue(
+            title="[Evidence]: This repository",
+            body=f"https://github.com/AStrasler/Egeregore/issues/{number}\n",
+            labels=["type:evidence"],
+        )
+        finished = self.cursor.release_task(number, "done", "the evidence issue links this task")
+        self.assertTrue(finished["ok"], finished)
+        self.assertEqual(finished["result"]["status"], "status:done")
+        self.assertIn("status:done", self.store.label_names(number))
+
+        qualified = self._fresh_claim(
+            task_body(
+                outcome="The runbook paragraph is updated.",
+                context="Implementation notes for the MCP server.",
+                out_of_scope="Documentation only. No pull request.",
+            )
+        )
+        self.store.seed_issue(
+            title="[Evidence]: Qualified reference",
+            body=f"AStrasler/Egeregore#{qualified}\n",
+            labels=["type:evidence"],
+        )
+        also = self.cursor.release_task(qualified, "done", "the qualified reference links this task")
+        self.assertTrue(also["ok"], also)
+        self.assertIn("status:done", self.store.label_names(qualified))
 
     def test_review_request_rejects_closed_pulls_and_duplicate_heads(self) -> None:
         closed = 40

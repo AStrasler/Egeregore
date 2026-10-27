@@ -110,7 +110,10 @@ def completed_reviews(comments: Sequence[Mapping[str, object]]) -> tuple[list[di
         # than the request that it already answered.
         result_at = str(comment.get("updated_at") or comment.get("created_at") or "")
         request_at = str(comment.get("created_at") or "")
-        state = _review_state(body)
+        # A copied payload must not count as Codex. Only the connector bot can
+        # close a round or clear findings.
+        from_codex = _author(comment).lower() == f"{_CODEX_BOT}[bot]"
+        state = _review_state(body) if from_codex else None
         if state is not None:
             code_review = state.get("code_review")
             if isinstance(code_review, dict):
@@ -129,7 +132,7 @@ def completed_reviews(comments: Sequence[Mapping[str, object]]) -> tuple[list[di
                         last_result = result_at
                 elif status not in (None, "", "completed"):
                     pending = str(status)
-        if "codex-review-receipt" in body:
+        if from_codex and "codex-review-receipt" in body:
             found = _RECEIPT_RE.search(body)
             if found:
                 unresolved: bool | None = None
@@ -252,10 +255,19 @@ def stall_view(labels: Sequence[str], state: coord.LeaseState) -> dict[str, obje
     }
 
 
-def _mentions_issue(body: str, number: int) -> bool:
+def _mentions_issue(body: str, number: int, repo: str) -> bool:
     if any(int(match.group(1)) == number for match in _ISSUE_REF_RE.finditer(body)):
         return True
-    return bool(re.search(rf"/issues/{number}\b", body))
+    owner, _, name = repo.partition("/")
+    if not owner or not name:
+        return False
+    qualified = re.compile(
+        rf"(?:https://github\.com/{re.escape(owner)}/{re.escape(name)}/issues/{number}\b|"
+        rf"(?<![\w./]){re.escape(owner)}/{re.escape(name)}/issues/{number}\b|"
+        rf"(?<![\w./]){re.escape(owner)}/{re.escape(name)}#{number}\b)",
+        re.IGNORECASE,
+    )
+    return qualified.search(body) is not None
 
 
 def _author(comment: Mapping[str, object]) -> str:
@@ -977,7 +989,7 @@ class CoordinationService:
             kind = coord.kind_from_title(str(item.get("title") or ""))
             if "type:evidence" not in labels and kind != "evidence":
                 continue
-            if _mentions_issue(str(item.get("body") or ""), number):
+            if _mentions_issue(str(item.get("body") or ""), number, self.repo):
                 return True
         return False
 
