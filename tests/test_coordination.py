@@ -106,6 +106,12 @@ class IssueValidationTests(unittest.TestCase):
         self.assertNotIn(token, comment_body)
         self.assertNotIn("ghp_", comment_body)
 
+    def test_bad_role_and_priority_are_rejected(self) -> None:
+        bad_role = coord.validate_issue("[Task]: Docs", issue_body(task_fields(Role="intern")))
+        bad_priority = coord.validate_issue("[Task]: Docs", issue_body(task_fields(Priority="asap")))
+        self.assertIn("Role must be chatgpt, grokbot, cursor, codex, aaron, or any.", bad_role.problems)
+        self.assertIn("Priority must be low, normal, high, or urgent.", bad_priority.problems)
+
     def test_unknown_title_is_rejected(self) -> None:
         check = coord.validate_issue("Docs", issue_body(task_fields()))
         self.assertFalse(check.ok)
@@ -170,17 +176,52 @@ class LeaseTests(unittest.TestCase):
         )
         self.assertEqual(too_long.status, "too_long")
 
-    def test_latest_event_wins_and_release_ends_the_lease(self) -> None:
+    def test_earliest_overlapping_claim_holds_and_release_allows_recovery(self) -> None:
         created = NOW - timedelta(hours=2)
         first = self.claim("chatgpt", created, NOW + timedelta(hours=4), 1)
         second = self.claim("cursor", created + timedelta(minutes=5), NOW + timedelta(hours=3), 2)
-        self.assertEqual(coord.assess_lease([first, second], NOW).agent, "cursor")
+        overlap = coord.assess_lease([first, second], NOW)
+        self.assertEqual(overlap.status, "active")
+        self.assertEqual(overlap.agent, "chatgpt")
+        self.assertTrue(any("ignored overlapping claim by cursor" in item for item in overlap.conflicts))
 
-        released = comment("Lease-Release: cursor\n", NOW - timedelta(minutes=1), 3)
-        self.assertEqual(coord.assess_lease([second, released], NOW).status, "released")
+        foreign_release = comment("Lease-Release: cursor\n", NOW - timedelta(minutes=30), 3)
+        still_held = coord.assess_lease([first, second, foreign_release], NOW)
+        self.assertEqual(still_held.agent, "chatgpt")
+        self.assertEqual(still_held.status, "active")
 
-        renewed = self.claim("cursor", NOW - timedelta(minutes=1), NOW + timedelta(hours=2), 4)
-        self.assertEqual(coord.assess_lease([second, released, renewed], NOW).status, "active")
+        holder_release = comment("Lease-Release: chatgpt\n", NOW - timedelta(minutes=20), 4)
+        released = coord.assess_lease([first, holder_release], NOW)
+        self.assertEqual(released.status, "released")
+
+        recovered = self.claim("cursor", NOW - timedelta(minutes=10), NOW + timedelta(hours=2), 5)
+        taken = coord.assess_lease([first, holder_release, recovered], NOW)
+        self.assertEqual(taken.status, "active")
+        self.assertEqual(taken.agent, "cursor")
+        self.assertEqual(taken.conflicts, ())
+
+    def test_expired_holder_can_be_recovered_by_a_later_claim(self) -> None:
+        started = NOW - timedelta(hours=10)
+        expired_claim = self.claim("grokbot", started, started + timedelta(hours=6), 1)
+        self.assertEqual(coord.assess_lease([expired_claim], NOW).status, "expired")
+        recovery = self.claim("cursor", NOW - timedelta(minutes=5), NOW + timedelta(hours=2), 2)
+        state = coord.assess_lease([expired_claim, recovery], NOW)
+        self.assertEqual(state.status, "active")
+        self.assertEqual(state.agent, "cursor")
+        self.assertEqual(state.conflicts, ())
+
+    def test_conflict_comment_does_not_steal_or_release_the_lease(self) -> None:
+        created = NOW - timedelta(hours=1)
+        first = self.claim("chatgpt", created, NOW + timedelta(hours=4), 1)
+        second = self.claim("codex", created + timedelta(minutes=10), NOW + timedelta(hours=1), 2)
+        state = coord.assess_lease([first, second], NOW)
+        follow_up = comment(coord.lease_conflict_comment(state), NOW, 3)
+        again = coord.assess_lease([first, second, follow_up], NOW)
+        self.assertEqual(again.status, "active")
+        self.assertEqual(again.agent, "chatgpt")
+        self.assertNotRegex(coord.lease_conflict_comment(state), r"(?m)^Lease-Expires:")
+        self.assertNotRegex(coord.lease_conflict_comment(state), r"(?m)^Lease-Release:")
+        self.assertNotRegex(coord.lease_conflict_comment(state), r"(?m)^Claim-Agent:")
 
     def test_renewal_keeps_the_earlier_agent(self) -> None:
         created = NOW - timedelta(hours=3)
@@ -236,41 +277,39 @@ class LeaseTests(unittest.TestCase):
 
 
 class DecisionTests(unittest.TestCase):
-    def test_only_the_owner_login_relabels(self) -> None:
+    def test_login_records_a_decision_and_does_not_authorize(self) -> None:
         self.assertIsNone(coord.decision_verdict("hello\n"))
         self.assertEqual(coord.decision_verdict("\nDecision: Approve the merge\n"), "approve")
         self.assertIsNone(coord.decision_plan("AStrasler", None, "[Task]: x", []))
 
-        warning = coord.decision_plan("cursor", "approve", "[Task]: Ship it", ["status:needs-owner"])
-        assert warning is not None
-        self.assertTrue(warning.warning)
-        self.assertEqual(warning.add, ())
-        warning_comment = coord.render_decision_comment(warning, "9", "approve")
-        self.assertNotIn("Lease-Release:", warning_comment)
+        for author in ("cursor", "github-actions[bot]", "", "astraler"):
+            warning = coord.decision_plan(author, "approve", "[Task]: Ship it", ["status:needs-owner"])
+            assert warning is not None
+            self.assertEqual(warning.authorization, "none")
+            self.assertEqual(warning.add, ())
+            self.assertEqual(warning.remove, ())
+            warning_comment = coord.render_decision_comment(warning, "9", "approve")
+            self.assertNotIn("Lease-Release:", warning_comment)
+            self.assertIn("Authorization: none", warning_comment)
+            self.assertIn("not a verified authorization", warning.note.lower())
 
-        approved = coord.decision_plan("AStrasler", "approve", "[Task]: Ship it", ["status:needs-owner"])
-        assert approved is not None
-        self.assertEqual(approved.add, ("status:ready",))
-        self.assertIn("status:needs-owner", approved.remove)
-        approved_comment = coord.render_decision_comment(approved, "9", "approve")
-        self.assertIn("Lease-Release: aaron", approved_comment)
+        for verdict, title, labels in (
+            ("approve", "[Task]: Ship it", ["status:needs-owner"]),
+            ("reject", "[Task]: Ship it", ["status:needs-owner", "status:claimed"]),
+            ("approve", "[Decision]: Access", ["status:needs-owner", "type:decision"]),
+        ):
+            recorded = coord.decision_plan("AStrasler", verdict, title, labels)
+            assert recorded is not None
+            self.assertEqual(recorded.authorization, "recorded")
+            self.assertEqual(recorded.add, ())
+            self.assertEqual(recorded.remove, ())
+            recorded_comment = coord.render_decision_comment(recorded, "9", verdict)
+            self.assertIn("Authorization: recorded", recorded_comment)
+            self.assertIn("not a verified authorization", recorded_comment)
+            self.assertNotIn("Lease-Release:", recorded_comment)
+            self.assertNotIn("status:ready", recorded_comment)
 
-        rejected = coord.decision_plan("AStrasler", "reject", "[Task]: Ship it", ["status:needs-owner", "status:claimed"])
-        assert rejected is not None
-        self.assertEqual(rejected.add, ("status:done",))
-        self.assertIn("status:claimed", rejected.remove)
-
-        decision_issue = coord.decision_plan(
-            "AStrasler",
-            "approve",
-            "[Decision]: Access",
-            ["status:needs-owner", "type:decision"],
-        )
-        assert decision_issue is not None
-        self.assertEqual(decision_issue.add, ("status:done",))
-        self.assertNotIn("status:ready", decision_issue.add)
-
-    def test_owner_release_ends_an_active_lease(self) -> None:
+    def test_recorded_decision_does_not_release_a_live_lease(self) -> None:
         created = NOW - timedelta(hours=1)
         claim = comment(
             f"Claim-Agent: cursor\nLease-Expires: {iso(NOW + timedelta(hours=4))}\n",
@@ -279,8 +318,10 @@ class DecisionTests(unittest.TestCase):
         )
         plan = coord.decision_plan("AStrasler", "approve", "[Task]: Continue", ["status:needs-owner"])
         assert plan is not None
-        release = comment(coord.render_decision_comment(plan, "4", "approve"), NOW, 4)
-        self.assertEqual(coord.assess_lease([claim, release], NOW).status, "released")
+        note = comment(coord.render_decision_comment(plan, "4", "approve"), NOW, 4)
+        state = coord.assess_lease([claim, note], NOW)
+        self.assertEqual(state.status, "active")
+        self.assertEqual(state.agent, "cursor")
 
 
 class CliTests(unittest.TestCase):
@@ -432,6 +473,25 @@ class RepoPolicyTests(unittest.TestCase):
 
         hygiene = (workflow_dir / "issue-hygiene.yml").read_text(encoding="utf-8")
         self.assertIn("startsWith(github.event.comment.body, 'Decision:')", hygiene)
+        ci = (workflow_dir / "ci.yml").read_text(encoding="utf-8")
+        self.assertIn("python3 -m unittest discover -s tests -v", ci)
+        self.assertLess(ci.index("permissions:"), ci.index("jobs:"))
+        for path in files:
+            text = path.read_text(encoding="utf-8")
+            self.assertLess(text.index("permissions:"), text.index("jobs:"))
+            self.assertNotIn("contents: write", text)
+            self.assertNotIn("pull-requests:", text)
+            self.assertEqual(len(re.findall(r"(?m)^permissions:[ \t]*$", text)), 1)
+
+    def test_readme_and_apache_license_are_present(self) -> None:
+        license_text = (ROOT / "LICENSE").read_text(encoding="utf-8")
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertTrue(license_text.startswith("Copyright 2026 Aaron Strasler\n"))
+        self.assertIn("Apache License", license_text)
+        self.assertIn("Version 2.0, January 2004", license_text)
+        self.assertIn("APPENDIX: How to apply the Apache License to your work.", license_text)
+        self.assertIn("Apache License, Version 2.0", readme)
+        self.assertIn("](LICENSE)", readme)
 
     def test_docs_state_the_public_boundary_and_private_switch(self) -> None:
         readme = (ROOT / "README.md").read_text(encoding="utf-8")

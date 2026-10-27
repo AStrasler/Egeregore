@@ -23,7 +23,7 @@ These hold because of GitHub's product behavior or because of a file GitHub read
 | Workflow token scope | The `permissions:` key in each workflow is enforced for `GITHUB_TOKEN`. `CI` is `contents: read`. The other two are `contents: read` and `issues: write`. |
 | No Actions secrets in this design | No workflow reads `secrets.*`. Nothing in this pull request creates a secret. GitHub does not invent one. |
 | Web issue forms | After merge, `.github/ISSUE_TEMPLATE/config.yml` disables blank issues. The web UI then requires the form fields and the data-boundary checkbox. |
-| Owner decision author | The decision job runs only for a comment whose body starts with `Decision:`. It relabels only when the comment author login is `AStrasler`. Any other login gets a warning and no label change. |
+| Owner decision comment | The decision job runs only for a comment whose body starts with `Decision:`. It posts a recorded-decision note when the login is `AStrasler`, and a warning otherwise. It does not change labels. The login is attribution, not a verified authorization. |
 | Separate repositories | A collaborator on this repo is not a collaborator on WHOOP-Lens or Weather Intelligence. GitHub enforces that split. This repo cannot widen it. |
 | Agents cannot promote themselves | Changing collaborators, roles, rulesets, and visibility requires admin. Agent logins are not given admin. |
 
@@ -33,13 +33,13 @@ The CI test fails a pull request that adds `pull_request_target`, `workflow_run`
 
 | Control | Until the setting exists |
 | --- | --- |
-| CODEOWNERS | GitHub requests `@AStrasler`. It does not block the merge until "Require review from Code Owners" is on. On a private personal repo, that feature is part of GitHub Pro. |
-| No direct pushes to `main` | Agents avoid `main`. GitHub still accepts a push from someone with write access until branch protection or a ruleset restricts it. |
-| Required review and required CI | Same as above. Aaron turns them on. |
+| CODEOWNERS | GitHub requests `@AStrasler`. Requiring that review blocks a pull request he authored, including many Cursor runs, because an author cannot approve their own pull request and he is the only code owner. Leave that requirement off. See OPERATIONS.md. On a private personal repo, code-owner rules are part of GitHub Pro. |
+| No direct pushes to `main` | Agents avoid `main`. A push restriction limited to `@AStrasler` stops other users. An agent using his token can still push. |
+| Required CI | Aaron can require the `CI / test` check. That blocks a failing pull request. It does not prove he personally reviewed it. |
 | Leases | Any agent may reclaim after `Lease-Expires`. The daily workflow relabels expired claims when Actions is enabled. GitHub cron can be delayed. Agents do not wait for it. |
 | One status label | Agents replace the previous status label when they change state. GitHub allows several labels at once. |
 | Data boundary | The checkbox and the hygiene comment are backstops. A person with write access can still paste a secret or a health export. The hygiene job looks for common credential shapes and does not echo them. It does not detect health data. |
-| Handoffs and approvals | A handoff issue, a review, or an agent-written `Decision:` line grants nothing. |
+| Handoffs and approvals | A handoff, a Codex review, and a `Decision:` comment grant nothing. A comment from `@AStrasler` is a recorded decision. Verified authorization is Aaron performing the merge, setting change, or label change himself. GitHub cannot separate that from an agent on his account. |
 | `github-actions[bot]` | The bot does not claim tasks. Agents do not treat its comments as a lease. |
 
 ## Switching this repository to private

@@ -114,6 +114,7 @@ class LeaseState:
     agent: str | None
     expires: datetime | None
     marker: str
+    conflicts: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -126,10 +127,18 @@ class LabelPlan:
 
 @dataclass(frozen=True)
 class DecisionPlan:
+    """A Decision comment is a recorded note, never a verified authorization.
+
+    authorization is "none" or "recorded". This module does not emit "verified":
+    a GitHub login cannot prove Aaron personally approved, because an agent can
+    post through his connected account.
+    """
+
     warning: bool
     add: tuple[str, ...]
     remove: tuple[str, ...]
     note: str
+    authorization: str
 
 
 class GhError(Exception):
@@ -334,10 +343,23 @@ def render_hygiene_comment(check: IssueCheck, *, passed: bool = False) -> str:
 
 
 def assess_lease(comments: Sequence[Mapping[str, object]], now: datetime) -> LeaseState:
+    """The earliest live claim holds. A later agent does not take an unexpired lease.
+
+    Renewal by the same agent updates that holder's expiry. After the holder's
+    expiry, or after that agent releases, the next valid claim may take it.
+    Comment order is GitHub's receipt order. It is not a lock.
+    """
     if now.tzinfo is None:
         raise ValueError("now must be timezone-aware")
-    agent: str | None = None
-    last: tuple[str, str | None, datetime | None, str, datetime] | None = None
+    holder_agent: str | None = None
+    holder_expires: datetime | None = None
+    release_id = "none"
+    carried_agent: str | None = None
+    conflicts: list[str] = []
+    saw_invalid = False
+    saw_too_long = False
+    saw_release = False
+
     for index, comment in enumerate(comments):
         created = parse_time(str(comment["created_at"]))
         comment_id = str(comment.get("id", index))
@@ -346,32 +368,65 @@ def assess_lease(comments: Sequence[Mapping[str, object]], now: datetime) -> Lea
             line = raw.strip()
             claim = CLAIM_AGENT_RE.match(line)
             if claim:
-                agent = claim.group(1).lower()
+                carried_agent = claim.group(1).lower()
                 continue
             release = RELEASE_RE.match(line)
             if release:
-                last = ("release", release.group(1).lower(), None, comment_id, created)
+                who = release.group(1).lower()
+                if (
+                    holder_agent
+                    and holder_expires is not None
+                    and holder_expires > created
+                    and who != holder_agent
+                ):
+                    conflicts.append(f"ignored release by {who} while {holder_agent} holds the lease")
+                    continue
+                holder_agent = None
+                holder_expires = None
+                release_id = comment_id
+                saw_release = True
                 continue
             expires = EXPIRES_RE.match(line)
-            if expires:
-                last = ("expires", agent, parse_time(expires.group(1)), comment_id, created)
-    if last is None:
-        return LeaseState("missing", None, None, "missing:none")
+            if not expires:
+                continue
+            exp = parse_time(expires.group(1))
+            agent = carried_agent
+            if agent not in ALLOWED_AGENTS:
+                saw_invalid = True
+                conflicts.append("ignored lease with no known Claim-Agent")
+                continue
+            if exp - created > MAX_LEASE:
+                saw_too_long = True
+                conflicts.append(f"ignored lease by {agent} longer than 24 hours")
+                continue
+            if (
+                holder_agent
+                and holder_expires is not None
+                and holder_expires > created
+                and agent != holder_agent
+            ):
+                conflicts.append(
+                    f"ignored overlapping claim by {agent} while {holder_agent} holds the lease"
+                )
+                continue
+            holder_agent = agent
+            holder_expires = exp
+            saw_release = False
 
-    kind, event_agent, expires_at, comment_id, created = last
-    if kind == "release":
-        return LeaseState("released", event_agent, None, f"released:{comment_id}")
-    if event_agent not in ALLOWED_AGENTS:
-        shown = event_agent or "none"
-        stamp = expires_at.strftime("%Y-%m-%dT%H:%M:%SZ") if expires_at else "none"
-        return LeaseState("invalid_agent", event_agent, expires_at, f"invalid:{shown}:{stamp}")
-    assert expires_at is not None
-    stamp = expires_at.strftime("%Y-%m-%dT%H:%M:%SZ")
-    if expires_at - created > MAX_LEASE:
-        return LeaseState("too_long", event_agent, expires_at, f"too_long:{stamp}")
-    if expires_at <= now:
-        return LeaseState("expired", event_agent, expires_at, f"expired:{stamp}")
-    return LeaseState("active", event_agent, expires_at, f"active:{stamp}")
+    recorded = tuple(conflicts)
+    if holder_agent and holder_expires is not None:
+        stamp = holder_expires.strftime("%Y-%m-%dT%H:%M:%SZ")
+        suffix = f":c{len(recorded)}" if recorded else ""
+        if holder_expires <= now:
+            return LeaseState("expired", holder_agent, holder_expires, f"expired:{stamp}{suffix}", recorded)
+        return LeaseState("active", holder_agent, holder_expires, f"active:{stamp}{suffix}", recorded)
+    if saw_release:
+        return LeaseState("released", None, None, f"released:{release_id}", recorded)
+    if saw_invalid and not saw_too_long:
+        return LeaseState("invalid_agent", None, None, "invalid:none", recorded)
+    if saw_too_long:
+        return LeaseState("too_long", None, None, "too_long:none", recorded)
+    return LeaseState("missing", None, None, "missing:none", recorded)
 
 
 def lease_label_plan(labels: Sequence[str], state: LeaseState) -> LabelPlan | None:
@@ -398,12 +453,12 @@ def lease_label_plan(labels: Sequence[str], state: LeaseState) -> LabelPlan | No
 
 def lease_comment(state: LeaseState) -> str:
     reasons = {
-        "expired": "The latest lease is past Lease-Expires.",
-        "released": "The latest lease event is a release, and the issue was still marked claimed or in progress.",
+        "expired": "The holding lease is past Lease-Expires.",
+        "released": "The holder released the lease, and the issue was still marked claimed or in progress.",
         "missing": "There is no Lease-Expires line.",
-        "too_long": "The latest lease is longer than 24 hours, so it does not count.",
+        "too_long": "The lease is longer than 24 hours, so it does not count.",
         "invalid_agent": (
-            "The latest lease has no known Claim-Agent. "
+            "The lease has no known Claim-Agent. "
             "Use chatgpt, grokbot, cursor, codex, or aaron."
         ),
     }
@@ -429,6 +484,22 @@ def lease_comment(state: LeaseState) -> str:
     return "\n".join(lines) + "\n"
 
 
+def lease_conflict_comment(state: LeaseState) -> str:
+    stamp = state.expires.strftime("%Y-%m-%dT%H:%M:%SZ") if state.expires else "unknown"
+    lines = [
+        f"<!-- egregore-lease-conflict:{state.marker} -->",
+        "",
+        f"Overlapping claim ignored. {state.agent} still holds the lease until {stamp}.",
+        "GitHub comments are not a lock. A later claim does not replace an earlier live lease.",
+        "The later agent stops. Do not open a second branch or pull request for this task.",
+    ]
+    for item in state.conflicts:
+        lines.append(f"- {item}")
+    lines.append("")
+    lines.append("This workflow does not claim the issue.")
+    return "\n".join(lines) + "\n"
+
+
 def decision_verdict(body: str) -> str | None:
     for line in (body or "").replace("\r\n", "\n").split("\n"):
         stripped = line.strip()
@@ -447,40 +518,34 @@ def decision_plan(
 ) -> DecisionPlan | None:
     if verdict is None:
         return None
+    # labels and title are accepted so callers can pass issue context. A comment
+    # never moves status: a login is attribution, not a verified authorization.
+    del title, labels
     if author != OWNER_LOGIN:
         return DecisionPlan(
             True,
             (),
             (),
-            "Only @AStrasler can record an owner decision. This comment does not approve or reject the request.",
+            "This comment does not record an owner decision. The workflow did not change labels. "
+            "A GitHub login is not a verified authorization.",
+            "none",
         )
-    names = set(labels)
-    is_decision = kind_from_title(title) == "decision" or "type:decision" in names
-    if verdict == "reject":
-        target = "status:done"
-        note = "Recorded @AStrasler's rejection. Stop the request. No setting was changed."
-    elif is_decision:
-        target = "status:done"
-        note = (
-            "Recorded @AStrasler's decision. Related work stays where it is until its own issue is updated. "
-            "No repository access, credential, or merge was granted."
-        )
-    else:
-        target = "status:ready"
-        note = (
-            "Recorded @AStrasler's approval. The task can be claimed. "
-            "No new repository access, credential, or merge was granted."
-        )
-    remove = tuple(label for label in STATUS_LABELS if label in names and label != target)
-    add = (target,) if target not in names else ()
-    return DecisionPlan(False, add, remove, note)
+    return DecisionPlan(
+        False,
+        (),
+        (),
+        "Recorded decision only. GitHub attributes this comment to @AStrasler. "
+        "That login is not proof Aaron personally approved, because an agent can post through his connected account. "
+        "This is not a verified authorization. The workflow did not change labels, access, or merge state. "
+        "Aaron verifies an owner action by doing it himself: merging, changing the setting, or moving the status label in a session he is driving.",
+        "recorded",
+    )
 
 
 def render_decision_comment(plan: DecisionPlan, comment_id: str, verdict: str) -> str:
-    lines = [f"<!-- egregore-decision:{verdict}:{comment_id} -->", "", plan.note]
-    if not plan.warning:
-        # Aaron's comment ends any open lease. A warning for someone else must not.
-        lines.extend(["", "Lease-Release: aaron"])
+    lines = [f"<!-- egregore-decision:{plan.authorization}:{verdict}:{comment_id} -->", "", plan.note]
+    lines.append("")
+    lines.append("Authorization: recorded" if plan.authorization == "recorded" else "Authorization: none")
     return "\n".join(lines) + "\n"
 
 
@@ -661,6 +726,13 @@ def cmd_check_leases(apply: bool, now_value: str | None) -> int:
             if not isinstance(comments, list):
                 raise GhError("unexpected comments payload")
             state = assess_lease(comments, now)
+            if state.conflicts and state.status == "active":
+                conflict_marker = f"<!-- egregore-lease-conflict:{state.marker} -->"
+                if not any(conflict_marker in str(comment.get("body") or "") for comment in comments):
+                    gh_json(
+                        ["--method", "POST", f"repos/{repo}/issues/{number}/comments", "--input", "-"],
+                        {"body": lease_conflict_comment(state)},
+                    )
             plan = lease_label_plan(labels, state)
             if plan is None:
                 continue
@@ -707,7 +779,7 @@ def cmd_check_decision(apply: bool) -> int:
     if plan is None:
         return 0
     body = render_decision_comment(plan, comment_id, verdict)
-    marker = f"<!-- egregore-decision:{verdict}:{comment_id} -->"
+    marker = body.splitlines()[0]
     comments = gh_json(
         ["--paginate", "--method", "GET", f"repos/{repo}/issues/{number}/comments", "-f", "per_page=100"]
     )

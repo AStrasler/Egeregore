@@ -75,7 +75,7 @@ Reason: pausing
 
 Then set the status to `ready`, `blocked`, `needs-review`, `needs-owner`, or `done`. A release with the label left on `claimed` is repaired by the daily workflow, which is a backstop. The next agent may reclaim from the comments as soon as the lease is expired or released.
 
-`Claim-Agent` is one of `chatgpt`, `grokbot`, `cursor`, `codex`, `aaron`. Put it above `Lease-Expires` in the same comment. The last `Lease-Expires` or `Lease-Release` line in the thread wins. A renewal that omits `Claim-Agent` keeps the earlier agent.
+`Claim-Agent` is one of `chatgpt`, `grokbot`, `cursor`, `codex`, `aaron`. Put it above `Lease-Expires` in the same comment. The earliest live claim holds. A later claim from a different agent does not replace it while that lease is unexpired. The same agent renews by posting a new `Lease-Expires`. A renewal that omits `Claim-Agent` keeps the holder. After the holder releases, or after that `Lease-Expires` has passed, the next valid claim takes the task. A release from anyone else leaves the holder in place.
 
 Mid-task progress is a comment on the task issue:
 
@@ -93,10 +93,12 @@ Data-Boundary: coordination-only
 2. On return, read the latest lease. If it is still yours and unexpired, continue. A new claim is optional.
 3. If your lease expired and nobody posted a later claim, post a new claim and continue from the branch or pull request that already exists. Do not open a second pull request for the same task.
 4. If another agent holds a valid lease, stop. Comment with the branch URL if you have one, and wait.
-5. If two claims overlap, the earlier valid lease holds. The later agent steps back in a comment.
+5. If two claims overlap, the earlier valid lease holds. The later agent steps back in a comment and does not open a second branch or pull request. The daily workflow comments when it sees that overlap. It leaves the earlier agent's status label alone while the lease is live.
 6. `github-actions[bot]` never holds a lease. Ignore its backstop comment when deciding who owns the work, then read the human claim above it.
 
-The daily lease-watch workflow relabels `status:claimed` and `status:in-progress` when the latest lease is missing, expired, released, longer than 24 hours, or missing a known agent. It adds `lease:expired` and, unless the issue is `status:done` or `status:needs-owner`, sets `status:ready`. It does not delete branches, close pull requests, or take the task. GitHub may delay the cron run. Reclaim without waiting for it.
+GitHub issues cannot lock a task. Two agents can read `status:ready` and both comment before either comment is visible. Comment order is arrival order at GitHub, not a transaction, and a write or triage collaborator can still change labels. The lease rule and the workflow reduce duplicate work when agents read the thread before starting. They do not prevent a race. There is no compare-and-swap on an issue.
+
+The daily lease-watch workflow relabels `status:claimed` and `status:in-progress` when the holding lease is missing, expired, released, longer than 24 hours, or missing a known agent. It adds `lease:expired` and, unless the issue is `status:done` or `status:needs-owner`, sets `status:ready`. It does not delete branches, close pull requests, or take the task. GitHub may delay the cron run. Reclaim without waiting for it.
 
 An issue that is `status:needs-owner` stays with Aaron when its lease ends. It does not become ready.
 
@@ -145,7 +147,9 @@ Before stopping, post Progress or Evidence, then update the status and release t
 
 `workflow_dispatch` on lease watch reruns the flagger. Issue and lease workflows run the code on the default branch, so a pull request cannot change them until Aaron merges it.
 
-The hygiene job comments when required fields, the data-boundary checkbox, or a credential-like string are missing or present. It does not print the issue body. It can add `status:needs-owner`. It does not remove that label. Aaron's `Decision:` comment is what clears it.
+The hygiene job comments when required fields, the data-boundary checkbox, or a credential-like string are missing or present. It does not print the issue body. It can add `status:needs-owner`. It does not remove that label.
+
+A comment that starts with `Decision:` is a recorded decision when GitHub attributes it to `@AStrasler`, and nothing when another login writes it. The workflow posts that distinction and does not change labels. Attribution is not a verified authorization: an agent using Aaron's connected GitHub account can post as `@AStrasler`. This repository cannot tell those posts apart. Aaron verifies an owner action by merging, changing the setting, or moving the status label himself.
 
 These workflows are sized for GitHub Pro's private-repo minute quota. See [SECURITY.md](SECURITY.md#switching-this-repository-to-private) before switching visibility. They do not assume unlimited public minutes.
 
@@ -156,6 +160,27 @@ This repository does not apply these. They work while the repo is public and aft
 1. Merge the coordination pull request. The agent who opened it does not merge it.
 2. Run `scripts/create-labels.sh` from a clone of `main`.
 3. Settings → Actions → General: allow Actions, set workflow permissions to "Read repository contents and packages permissions", leave "allow Actions to create and approve pull requests" off, add no secrets, and do not enable larger runners.
-4. Branch protection or a ruleset on `main`: require a pull request, require 1 approval, require review from code owners, require the `CI / test` status check, block force pushes and branch deletion, and allow only `@AStrasler` to push to `main`. Agents do not get a bypass.
+4. Branch protection or a ruleset on `main`, chosen so a personal GitHub Pro repo can still merge. See [Reviews on a one-person repo](#reviews-on-a-one-person-repo) below. Use: require a pull request, require the `CI / test` status check, and block force pushes and branch deletion. Do not require an approving review count, and do not require code-owner review, while `@AStrasler` is the only code owner. Restricting pushes to `@AStrasler` stops other GitHub users. It does not stop an agent that is authenticated as him.
 5. If an agent uses its own GitHub login, grant Triage or Write on this repo only. Never Admin. Grant project repos separately, after an owner decision, one repository at a time.
 6. When making the repository private, follow the checklist in [SECURITY.md](SECURITY.md#switching-this-repository-to-private).
+
+## Reviews on a one-person repo
+
+GitHub will not let a pull request author approve their own pull request. Cursor-run pull requests on this account are often authored as `@AStrasler`. These three requirements cannot be true at the same time:
+
+- `@AStrasler` is the only person who can approve.
+- The pull request author is `@AStrasler`.
+- Branch protection requires one approval, or requires a review from code owners, and the only code owner is `@AStrasler`.
+
+His approval does not count on a pull request he opened, so the pull request cannot meet the rule. Turning on "include administrators" makes the deadlock apply to him too. Leaving administrators exempt lets him bypass, which is an emergency hatch, not a second reviewer.
+
+Workable rule while he is the only writer and the only code owner:
+
+- Require a pull request before merging to `main`.
+- Require the `CI / test` status check. CI's failure is then a GitHub block. Until that setting is on, CI is a signal.
+- Block force pushes and branch deletion.
+- Leave required approving reviews off, and leave "Require review from Code Owners" off. `CODEOWNERS` still names him, and GitHub may still request him. The file does not block the merge.
+- Aaron merges after he has read the pull request. That merge is the human check. Agents do not merge. GitHub cannot tell his merge click from an agent using his token, so this remains a convention on top of the pull-request rule.
+- A push restriction limited to `@AStrasler` is worth setting against other users. An agent signed in as him can still push.
+
+If a second GitHub account later has write access, and that account is not the pull request author, he can require one approval from that account. Code-owner review still fails closed when the only code owner authored the pull request. Add another code owner before requiring code-owner review.

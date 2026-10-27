@@ -33,7 +33,7 @@ Work moves through GitHub issues.
 4. **Hand off** when the next step belongs to a different role. A handoff names that role and links the task. It does not grant repository access, data access, or permission to merge. See [HANDOFFS.md](HANDOFFS.md).
 5. **Review and finish.** Cursor opens the pull request in the project repo it can already access and files a review request here. Codex reviews. Aaron merges. Grokbot records evidence and sets `status:done`.
 
-`github-actions[bot]` comments on missing fields, expired leases, and owner-decision lines. It does not claim work. A `Decision: approve` or `Decision: reject` comment counts only from `@AStrasler`.
+`github-actions[bot]` comments on missing fields, expired leases, and owner-decision lines. It does not claim work. A `Decision:` comment attributed to `@AStrasler` is a recorded decision, not a verified authorization. Agents can post through his connected GitHub account, and the workflow does not change labels from that comment.
 
 ## Docs
 
@@ -53,7 +53,7 @@ Aaron applies these. The pull request does not change repository settings, and t
 1. Merge the coordination pull request.
 2. From a clone of `main`, run `scripts/create-labels.sh`. It creates labels only, and it refuses any repository other than `AStrasler/Egeregore`.
 3. Settings → Actions → General: allow Actions, set workflow permissions to "Read repository contents and packages permissions", leave "Allow GitHub Actions to create and approve pull requests" off, add no secrets, and leave larger runners off.
-4. Protect `main`: require a pull request, one approval, review from code owners, and the `CI / test` check. Block force pushes and branch deletion. Only `@AStrasler` pushes to `main`.
+4. Protect `main` with a pull request and the `CI / test` check. Block force pushes and branch deletion. Do not require an approving review or a code-owner review while `@AStrasler` is the only code owner: he cannot approve a pull request he authored, and Cursor-run pull requests may be authored as him. Details are in [OPERATIONS.md](OPERATIONS.md#reviews-on-a-one-person-repo).
 5. If an agent has its own GitHub login, grant Triage or Write on this repo. Admin stays with Aaron. Grant each project repository separately, after an owner decision.
 6. When this repository becomes private, follow [SECURITY.md](SECURITY.md#switching-this-repository-to-private).
 

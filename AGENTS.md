@@ -38,7 +38,7 @@ Stop and open an owner-decision issue when the next step is any of these:
 - Copying data from one project into another.
 - Adding a new hobby project to the coordination list when that adds any access.
 
-Aaron records the result as `@AStrasler` with a comment whose first line is `Decision: approve` or `Decision: reject`. Agents do not write that line. The issue-hygiene workflow trusts GitHub's author login for that line and only relabels the issue. The workflow does not merge, deploy, or change access.
+Aaron can note a result with a comment whose first line is `Decision: approve` or `Decision: reject`. Agents do not write that line. If the login is `@AStrasler`, the workflow records the decision and stops. It does not change labels. That record is not a verified authorization, because an agent can post through his connected account. He verifies an owner action by merging, changing the setting, or moving the status label himself. The workflow does not merge, deploy, or change access.
 
 Filing the decision issue does not grant the request. Approval of one project does not grant another.
 
@@ -50,7 +50,7 @@ A comment on the same issue is enough when the same agent is continuing.
 
 ## Ownership of files
 
-`.github/CODEOWNERS` names `@AStrasler` for every file, and again for `.github/`, `tests/`, and `scripts/`. GitHub requests his review on pull requests. The review is mandatory only after he requires code-owner reviews in branch protection. Until then, agents still leave merges to him.
+`.github/CODEOWNERS` names `@AStrasler` for every file, and again for `.github/`, `tests/`, and `scripts/`. GitHub may request his review. Do not require code-owner review while he is the only code owner. A pull request authored as him, which includes many agent runs on his account, cannot be approved by him. Agents still leave merges to him. See [OPERATIONS.md](OPERATIONS.md#reviews-on-a-one-person-repo).
 
 Agents do not edit CODEOWNERS to add themselves. Agents do not grant themselves repository permissions. GitHub enforces the second part: only an admin can change collaborators and roles. Aaron is the admin. Agents are not.
 

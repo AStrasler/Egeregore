@@ -84,6 +84,6 @@ The only GitHub login this system treats as the owner is `@AStrasler`. The other
 
 - Workflow token scopes are enforced by the `permissions:` key.
 - Issue-form fields are enforced in the web UI after this file is on `main` and blank issues are disabled.
-- A comment that starts with `Decision:` changes labels only when GitHub says the author is `@AStrasler`.
+- A comment that starts with `Decision:` is recorded when GitHub says the author is `@AStrasler`. The workflow does not treat that login as verified authorization and does not change labels from it.
 - Code-owner review, required CI, and "agents cannot push to `main`" are enforced only after Aaron applies the settings in [OPERATIONS.md](OPERATIONS.md).
 - The data boundary is a rule plus a checkbox and a credential-pattern comment. GitHub will still store text that a person with write access pastes.

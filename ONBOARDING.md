@@ -10,7 +10,7 @@ WHOOP Lens and Weather Intelligence are the worked examples. WHOOP Lens already 
 
 1. Confirm the project is in scope. If the answer adds repository access, a credential, or any health data, open an owner-decision issue and wait. Listing a name for coordination can be routine only when no access changes.
 2. Pick a short slug: `whoop-lens`, `weather-intelligence`. The slug is only a label.
-3. Aaron, or an agent after Aaron's `Decision: approve`, adds the label:
+3. Aaron adds the label. An agent runs the script only after Aaron has verified that approval himself. A `Decision:` comment is only a recorded note.
 
    ```bash
    scripts/create-labels.sh project:whoop-lens "Coordination only. No health data in this repo."
