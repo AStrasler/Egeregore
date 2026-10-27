@@ -65,4 +65,4 @@ python3 -m unittest discover -s tests -v
 
 ## License
 
-Aaron is choosing a license. This repository does not include a `LICENSE` file yet. One will be added after he decides.
+Copyright 2026 Aaron Strasler. This project is licensed under the Apache License, Version 2.0. The full text is in [LICENSE](LICENSE).
