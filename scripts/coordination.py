@@ -349,12 +349,23 @@ def render_hygiene_comment(check: IssueCheck, *, passed: bool = False) -> str:
     return "\n".join(lines) + "\n"
 
 
+def current_lease_conflicts(conflicts: Sequence[str]) -> tuple[str, ...]:
+    """Overlap and foreign-release notes that still apply to the live holder."""
+    return tuple(item for item in conflicts if " holds the lease" in item)
+
+
+def without_previous_holder_conflicts(conflicts: list[str]) -> list[str]:
+    """Drop warnings that named a holder this claim is no longer continuing."""
+    return [item for item in conflicts if " holds the lease" not in item]
+
+
 def assess_lease(comments: Sequence[Mapping[str, object]], now: datetime) -> LeaseState:
     """The earliest live claim holds. A later agent does not take an unexpired lease.
 
-    Renewal by the same agent updates that holder's expiry. After the holder's
-    expiry, or after that agent releases, the next valid claim may take it.
-    Comment order is GitHub's receipt order. It is not a lock.
+    Renewal by the same agent updates that holder's expiry and keeps warnings
+    about that same live lease. After the holder releases, or after that lease
+    ends, the next valid claim starts a new hold and does not inherit those
+    warnings. Comment order is GitHub's receipt order. It is not a lock.
     """
     if now.tzinfo is None:
         raise ValueError("now must be timezone-aware")
@@ -398,6 +409,7 @@ def assess_lease(comments: Sequence[Mapping[str, object]], now: datetime) -> Lea
                 holder_expires = None
                 release_id = comment_id
                 saw_release = True
+                conflicts = without_previous_holder_conflicts(conflicts)
                 continue
             expires = EXPIRES_RE.match(line)
             if not expires:
@@ -431,6 +443,16 @@ def assess_lease(comments: Sequence[Mapping[str, object]], now: datetime) -> Lea
                     f"ignored overlapping claim by {agent} while {holder_agent} holds the lease"
                 )
                 continue
+            # A same-agent renewal of an unexpired lease keeps that lease's
+            # warnings. Any other accepted claim is a new hold.
+            live_renewal = (
+                holder_agent is not None
+                and holder_expires is not None
+                and holder_expires > created
+                and agent == holder_agent
+            )
+            if not live_renewal:
+                conflicts = without_previous_holder_conflicts(conflicts)
             holder_agent = agent
             holder_expires = exp
             saw_release = False
@@ -506,16 +528,22 @@ def lease_comment(state: LeaseState) -> str:
     return "\n".join(lines) + "\n"
 
 
+def lease_conflict_marker(state: LeaseState) -> str:
+    """Identity of the live overlap set. A renewal changes the expiry, not this."""
+    relevant = current_lease_conflicts(state.conflicts)
+    return "<!-- egregore-lease-conflict:" + (state.agent or "") + ":" + " | ".join(relevant) + " -->"
+
+
 def lease_conflict_comment(state: LeaseState) -> str:
     stamp = state.expires.strftime("%Y-%m-%dT%H:%M:%SZ") if state.expires else "unknown"
     lines = [
-        f"<!-- egregore-lease-conflict:{state.marker} -->",
+        lease_conflict_marker(state),
         "",
         f"Overlapping claim ignored. {state.agent} still holds the lease until {stamp}.",
         "GitHub comments are not a lock. A later claim does not replace an earlier live lease.",
         "The later agent stops. Do not open a second branch or pull request for this task.",
     ]
-    for item in state.conflicts:
+    for item in current_lease_conflicts(state.conflicts):
         lines.append(f"- {item}")
     lines.append("")
     lines.append("This workflow does not claim the issue.")
@@ -777,8 +805,8 @@ def cmd_check_leases(apply: bool, now_value: str | None) -> int:
             if not isinstance(comments, list):
                 raise GhError("unexpected comments payload")
             state = assess_lease(comments, now)
-            if state.conflicts and state.status == "active":
-                conflict_marker = f"<!-- egregore-lease-conflict:{state.marker} -->"
+            if current_lease_conflicts(state.conflicts) and state.status == "active":
+                conflict_marker = lease_conflict_marker(state)
                 if not any(conflict_marker in str(comment.get("body") or "") for comment in comments):
                     gh_json(
                         ["--method", "POST", f"repos/{repo}/issues/{number}/comments", "--input", "-"],

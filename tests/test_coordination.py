@@ -246,6 +246,39 @@ class LeaseTests(unittest.TestCase):
             state.conflicts,
             ("ignored overlapping claim by codex while cursor holds the lease",),
         )
+        before_renewal = coord.assess_lease([holder, overlap], NOW)
+        self.assertEqual(coord.lease_conflict_marker(state), coord.lease_conflict_marker(before_renewal))
+        self.assertNotEqual(state.expires, before_renewal.expires)
+
+    def test_new_holder_does_not_inherit_a_rejected_overlap(self) -> None:
+        created = NOW - timedelta(hours=2)
+        cursor_claim = self.claim("cursor", created, NOW + timedelta(hours=4), 1)
+        rejected = self.claim("codex", created + timedelta(minutes=5), NOW + timedelta(hours=3), 2)
+        held = coord.assess_lease([cursor_claim, rejected], NOW)
+        self.assertEqual(held.agent, "cursor")
+        self.assertEqual(
+            held.conflicts,
+            ("ignored overlapping claim by codex while cursor holds the lease",),
+        )
+
+        release = comment("Lease-Release: cursor\n", NOW - timedelta(minutes=40), 3)
+        codex_claim = self.claim("codex", NOW - timedelta(minutes=30), NOW + timedelta(hours=2), 4)
+        taken = coord.assess_lease([cursor_claim, rejected, release, codex_claim], NOW)
+        self.assertEqual(taken.status, "active")
+        self.assertEqual(taken.agent, "codex")
+        self.assertEqual(taken.conflicts, ())
+        self.assertEqual(coord.current_lease_conflicts(taken.conflicts), ())
+
+        renewal_at = NOW + timedelta(hours=5)
+        renewal = comment(f"Lease-Expires: {iso(renewal_at)}\n", NOW - timedelta(minutes=10), 5)
+        renewed = coord.assess_lease([cursor_claim, rejected, release, codex_claim, renewal], NOW)
+        self.assertEqual(renewed.status, "active")
+        self.assertEqual(renewed.agent, "codex")
+        self.assertEqual(renewed.expires, renewal_at)
+        self.assertEqual(renewed.conflicts, ())
+        self.assertEqual(coord.current_lease_conflicts(renewed.conflicts), ())
+        self.assertEqual(coord.lease_conflict_marker(taken), coord.lease_conflict_marker(renewed))
+        self.assertNotEqual(taken.expires, renewed.expires)
 
     def test_invalid_calendar_timestamp_does_not_abort_the_rest(self) -> None:
         created = NOW - timedelta(hours=1)
