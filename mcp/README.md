@@ -100,6 +100,10 @@ Every comment this server writes starts with `Agent: Cursor`, `Agent: Codex`, `A
 
 The review comment is the exception. Codex starts a review when the pull-request comment is the single line `@codex review`. An `Agent:` line on that comment would hide the request, so `request_review` does not add one.
 
+A losing claim also posts the conflict note from `coordination.py`. That note keeps the `egregore-lease-conflict` marker, and this server adds the caller's `Agent:` line in front of it.
+
+`done`, `next`, renewal notes, release reasons, and handoff text are rejected when any line is `Claim-Agent`, `Lease-Expires`, or `Lease-Release`. `assess_lease` reads every line, including lines inside a Markdown fence. A progress note must not be able to release or renew a lease.
+
 GitHub attributes the comment to the user who owns `EGREGORE_GITHUB_TOKEN`. A token for `@AStrasler` means every agent still posts as `@AStrasler`. The `Agent` line is a role name. It is not a login, and it is not Aaron's approval.
 
 This is not per-agent authentication. A real separation needs a GitHub App or a token per role. Creating either one is an owner decision. This server does not create them.

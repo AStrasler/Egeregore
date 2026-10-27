@@ -24,6 +24,8 @@ import coordination as coord  # noqa: E402
 from egregore_mcp.comments import (  # noqa: E402
     REVIEW_COMMENT,
     claim_comment,
+    conflict_comment,
+    contains_lease_control,
     handoff_issue_body,
     handoff_note,
     progress_comment,
@@ -733,6 +735,11 @@ class CoordinationService:
             return err("secret_rejected", f"{field} looks like a credential. It was not posted.")
         if coord.decision_verdict(value):
             return err("forbidden", "This server does not record or apply owner decisions.")
+        if contains_lease_control(value):
+            return err(
+                "invalid_input",
+                f"{field} contains a Claim-Agent, Lease-Expires, or Lease-Release line. It was not posted.",
+            )
         return None
 
     def _load(self, issue_number: int) -> tuple[Mapping[str, object], list[dict[str, object]]] | dict[str, object]:
@@ -800,12 +807,15 @@ class CoordinationService:
         return raw.lower()
 
     def _winning_claim(self, issue_number: int, issue: Mapping[str, object], hours: int) -> dict[str, object]:
+        title = self._task_title(issue, issue_number)
+        if isinstance(title, dict):
+            return title
         current = self._aware_now()
         body = claim_comment(
             agent=self.agent,
             claimed_at=stamp(current),
             expires=stamp(self._expiry(hours)),
-            task=str(issue.get("title") or f"#{issue_number}"),
+            task=title,
         )
         posted = self._comment(issue_number, body)
         if isinstance(posted, dict) and posted.get("ok") is False:
@@ -842,12 +852,15 @@ class CoordinationService:
         hours: int,
         holder: str | None,
     ) -> dict[str, object]:
+        title = self._task_title(issue, issue_number)
+        if isinstance(title, dict):
+            return title
         current = self._aware_now()
         body = claim_comment(
             agent=self.agent,
             claimed_at=stamp(current),
             expires=stamp(self._expiry(hours)),
-            task=str(issue.get("title") or f"#{issue_number}"),
+            task=title,
         )
         posted = self._comment(issue_number, body)
         if isinstance(posted, dict) and posted.get("ok") is False:
@@ -872,7 +885,10 @@ class CoordinationService:
                 }
             )
         if coord.conflict_comment_needed(comments, state):
-            conflict = self._comment(issue_number, coord.lease_conflict_comment(state))
+            conflict = self._comment(
+                issue_number,
+                conflict_comment(self.agent, coord.lease_conflict_comment(state)),
+            )
             if isinstance(conflict, dict) and conflict.get("ok") is False:
                 return conflict
         return err(
@@ -884,6 +900,15 @@ class CoordinationService:
             marker=coord.lease_conflict_marker(state),
             attempt_comment_id=str(posted["id"]),  # type: ignore[index]
         )
+
+    def _task_title(self, issue: Mapping[str, object], number: int) -> str | dict[str, object]:
+        title = str(issue.get("title") or f"#{number}")
+        if contains_lease_control(title):
+            return err(
+                "invalid_input",
+                "The issue title contains a Claim-Agent, Lease-Expires, or Lease-Release line. claim_task did not post.",
+            )
+        return title
 
     def _set_status(
         self,

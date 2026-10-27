@@ -8,6 +8,8 @@ when the pull-request comment is the single line `@codex review`.
 
 from __future__ import annotations
 
+import re
+
 DISPLAY_NAMES = {
     "chatgpt": "ChatGPT",
     "grokbot": "Grokbot",
@@ -17,6 +19,14 @@ DISPLAY_NAMES = {
 }
 
 REVIEW_COMMENT = "@codex review"
+
+# Same anchors as scripts/coordination.py. assess_lease matches these after
+# stripping the line, including inside a Markdown fence.
+_LEASE_CONTROL_RES = (
+    re.compile(r"^Lease-Expires:\s*\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\s*$"),
+    re.compile(r"^Claim-Agent:\s*[A-Za-z]+\s*$"),
+    re.compile(r"^Lease-Release:\s*[A-Za-z]+\s*$"),
+)
 
 ACCESS_SENTENCE = (
     "This handoff does not grant repository access, data access, credentials, "
@@ -30,6 +40,20 @@ def display_name(agent: str) -> str:
 
 def agent_preamble(agent: str) -> str:
     return f"Agent: {display_name(agent)}"
+
+
+def contains_lease_control(value: str) -> bool:
+    """True when a free-form field contains a line assess_lease would apply."""
+    for raw in value.replace("\r\n", "\n").split("\n"):
+        line = raw.strip()
+        if any(pattern.match(line) for pattern in _LEASE_CONTROL_RES):
+            return True
+    return False
+
+
+def conflict_comment(agent: str, body: str) -> str:
+    """Keep the coordination marker and name the role that posted it."""
+    return f"{agent_preamble(agent)}\n\n{body.lstrip(chr(10))}"
 
 
 def claim_comment(*, agent: str, claimed_at: str, expires: str, task: str) -> str:
