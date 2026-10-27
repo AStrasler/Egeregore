@@ -55,6 +55,7 @@ OWNER_LOGIN = "AStrasler"
 MAX_LEASE = timedelta(hours=24)
 STALL_AFTER = timedelta(days=3)
 STALL_LABEL = "stall:flagged"
+STALL_STAMP_RE = re.compile(r"<!-- egregore-stall:(?:[a-z0-9+-]+:)?(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) -->")
 PROJECT_SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 KNOWN_PROJECTS = frozenset({"coordination", "whoop-lens", "weather-intelligence"})
 
@@ -903,6 +904,15 @@ def latest_unstalled_activity(created_at: datetime, comments: Sequence[Mapping[s
     return latest
 
 
+def stall_stretch_noted(comments: Sequence[Mapping[str, object]], stamp: str) -> bool:
+    """True when this idle timestamp is already flagged, whatever the reason was."""
+    for comment in comments:
+        for match in STALL_STAMP_RE.finditer(str(comment.get("body") or "")):
+            if match.group(1) == stamp:
+                return True
+    return False
+
+
 def stall_plan(
     labels: Sequence[str],
     created_at: datetime | None,
@@ -913,8 +923,9 @@ def stall_plan(
 ) -> tuple[str | None, bool]:
     """One comment per idle stretch, and stall:flagged when that label is absent.
 
-    The comment is None when this stretch is already flagged. The bool is whether
-    to add stall:flagged. A live lease is not idle.
+    The comment is None when this stretch is already flagged. The marker is the
+    activity timestamp, so a later label change does not open a new stretch.
+    The bool is whether to add stall:flagged. A live lease is not idle.
     """
     if lease_active or created_at is None:
         return None, False
@@ -925,8 +936,8 @@ def stall_plan(
     if now - activity < STALL_AFTER:
         return None, False
     stamp = activity.strftime("%Y-%m-%dT%H:%M:%SZ")
-    marker = f"<!-- egregore-stall:{reason}:{stamp} -->"
-    already = any(marker in str(comment.get("body") or "") for comment in comments)
+    marker = f"<!-- egregore-stall:{stamp} -->"
+    already = stall_stretch_noted(comments, stamp)
     add_label = STALL_LABEL not in set(labels)
     if already:
         return None, add_label

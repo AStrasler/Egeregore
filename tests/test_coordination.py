@@ -889,7 +889,8 @@ class FormLabelAndStallTests(unittest.TestCase):
         body, add_label = coord.stall_plan(labels, created, [], NOW, lease_active=False)
         self.assertIsNotNone(body)
         assert body is not None
-        self.assertIn("<!-- egregore-stall:handoff+needs-owner:", body)
+        self.assertIn(f"<!-- egregore-stall:{iso(created)} -->", body)
+        self.assertNotIn("handoff+needs-owner:", body)
         self.assertIn("Reason: handoff+needs-owner.", body)
         self.assertTrue(add_label)
         self.assertEqual(
@@ -910,6 +911,29 @@ class FormLabelAndStallTests(unittest.TestCase):
             coord.stall_plan(labels, created, [noted], NOW, lease_active=False),
             (None, True),
         )
+        owner_only, owner_label = coord.stall_plan(
+            ["status:needs-owner"],
+            created,
+            [noted],
+            NOW,
+            lease_active=False,
+        )
+        self.assertIsNone(owner_only)
+        self.assertTrue(owner_label)
+        older = comment(
+            f"<!-- egregore-stall:needs-review:{iso(created)} -->\n\nStall flag.\n",
+            NOW - timedelta(hours=3),
+            5,
+        )
+        changed, changed_label = coord.stall_plan(
+            ["status:needs-owner"],
+            created,
+            [older],
+            NOW,
+            lease_active=False,
+        )
+        self.assertIsNone(changed)
+        self.assertTrue(changed_label)
         self.assertEqual(
             coord.stall_plan(
                 labels + ["stall:flagged"],
