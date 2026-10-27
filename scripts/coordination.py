@@ -1140,21 +1140,26 @@ def cmd_check_leases(apply: bool, now_value: str | None) -> int:
                 active += 1
             elif state.status == "expired":
                 expired += 1
+            posted_at = now.strftime("%Y-%m-%dT%H:%M:%SZ")
             if conflict_comment_needed(comments, state):
+                conflict_body = lease_conflict_comment(state)
                 gh_json(
                     ["--method", "POST", f"repos/{repo}/issues/{number}/comments", "--input", "-"],
-                    {"body": lease_conflict_comment(state)},
+                    {"body": conflict_body},
                 )
+                comments.append({"body": conflict_body, "created_at": posted_at})
                 conflicts_warned += 1
             plan = lease_label_plan(labels, state)
             working = list(labels)
             if plan is not None:
                 marker = f"<!-- egregore-lease:{plan.marker} -->"
                 if not any(marker in str(comment.get("body") or "") for comment in comments):
+                    backstop = lease_comment(state)
                     gh_json(
                         ["--method", "POST", f"repos/{repo}/issues/{number}/comments", "--input", "-"],
-                        {"body": lease_comment(state)},
+                        {"body": backstop},
                     )
+                    comments.append({"body": backstop, "created_at": posted_at})
                 if plan.add or plan.remove:
                     warnings = apply_label_changes(repo, int(number), plan.add, plan.remove)
                     for warning in warnings:

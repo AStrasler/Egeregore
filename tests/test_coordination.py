@@ -768,6 +768,53 @@ class LeaseWatchSummaryTests(unittest.TestCase):
         self.assertEqual(quiet_posts, [])
         self.assertIn("run no-op", quiet_log)
 
+    def test_fresh_lease_backstop_is_activity_so_the_same_run_does_not_stall(self) -> None:
+        opened = NOW - timedelta(days=10)
+        claimed = NOW - timedelta(days=5)
+        issues = [
+            {
+                "number": 23,
+                "created_at": iso(opened),
+                "labels": [{"name": "status:claimed"}, {"name": "status:needs-owner"}],
+            }
+        ]
+        comments = {23: [self.claim("cursor", claimed, claimed + timedelta(hours=4), 1)]}
+        code, log, posts = self.run_watch(issues, comments)
+        self.assertEqual(code, 0)
+        bodies = [
+            str(payload.get("body"))
+            for _path, payload in posts
+            if isinstance(payload, dict) and payload.get("body")
+        ]
+        self.assertEqual(sum("Lease backstop." in body for body in bodies), 1)
+        self.assertEqual(sum("<!-- egregore-stall:" in body for body in bodies), 0)
+        self.assertIn("stalls flagged 0", log)
+        self.assertIn("run expired", log)
+
+        backstop = next(body for body in bodies if "Lease backstop." in body)
+        later, later_log, later_posts = self.run_watch(
+            [
+                {
+                    "number": 23,
+                    "created_at": iso(opened),
+                    "labels": [
+                        {"name": "status:needs-owner"},
+                        {"name": "lease:expired"},
+                    ],
+                }
+            ],
+            {23: [comment(backstop, NOW - timedelta(days=4), 2)]},
+        )
+        self.assertEqual(later, 0)
+        stall_posts = [
+            payload
+            for _path, payload in later_posts
+            if isinstance(payload, dict) and "<!-- egregore-stall:" in str(payload.get("body"))
+        ]
+        self.assertEqual(len(stall_posts), 1)
+        self.assertIn(f"<!-- egregore-stall:{iso(NOW - timedelta(days=4))} -->", str(stall_posts[0].get("body")))
+        self.assertIn("stalls flagged 1", later_log)
+
 
 class FormLabelAndStallTests(unittest.TestCase):
     def test_form_labels_replace_a_stale_set_and_then_match(self) -> None:
