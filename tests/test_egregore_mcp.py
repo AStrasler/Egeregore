@@ -316,6 +316,19 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("https://github.com/AStrasler/weather-intelligence", weather_access)
         self.assertNotIn("AStrasler/Egeregore", weather_access)
 
+    def test_closed_issue_is_not_claimable(self) -> None:
+        number = self.store.seed_issue(
+            title="[Task]: Already finished",
+            body=task_body(),
+            labels=["type:task", "status:ready", "project:coordination"],
+            state="closed",
+        )
+        refused = self.cursor.claim_task(number)
+        self.assertEqual(refused["error"]["code"], "not_claimable")
+        self.assertEqual(self.store.list_comments(number), [])
+        self.assertEqual(self.store.label_names(number), ["type:task", "status:ready", "project:coordination"])
+        self.assertEqual(self.store.issues[number]["state"], "closed")
+
     def test_blocked_and_needs_review_are_not_claimable(self) -> None:
         blocked = self.store.seed_issue(
             title="[Task]: Waiting on a credential",
@@ -562,6 +575,26 @@ class ServiceTests(unittest.TestCase):
         assert blocked is not None
         self.assertEqual(blocked["error"]["code"], "review_limit")
         self.assertEqual(blocked["error"]["details"]["round_limit"], MAX_REVIEW_ROUNDS)
+
+    def test_summary_findings_win_over_a_clear_receipt(self) -> None:
+        full = "e" * 40
+        summary = summary_comment(
+            full,
+            unresolved=True,
+            comment_id=1,
+            created=NOW,
+            updated=NOW + timedelta(minutes=10),
+        )
+        receipt = receipt_comment(full[:10], 2, NOW + timedelta(minutes=1), passed=True)
+        self.assertIn("Didn't find any major issues", str(receipt["body"]))
+        for comments in ([summary, receipt], [receipt, summary]):
+            rounds, pending = completed_reviews(comments)
+            self.assertEqual(len(rounds), 1)
+            self.assertIsNone(pending)
+            self.assertTrue(rounds[0]["unresolved"])
+            blocked = review_block(comments, full)
+            assert blocked is not None
+            self.assertEqual(blocked["error"]["code"], "review_same_head")
 
     def test_same_commit_receipt_and_summary_are_one_round(self) -> None:
         full = "f" * 40

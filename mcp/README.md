@@ -34,7 +34,7 @@ Clients use `http://127.0.0.1:8765/mcp`. `EGREGORE_HTTP_HOST` accepts `127.0.0.1
 | --- | --- |
 | `get_tasks` | List issues. Default kind is `task`. Filters: `state`, `kind`, `status`, `project`, `role`, `limit`. |
 | `get_task` | One issue, its form fields, the current lease, and the stall gate. |
-| `claim_task` | Claim `status:ready` work, or reclaim expired `status:claimed` or `status:in-progress` work, for 1–24 hours. Default 6. The earliest live claim wins. It does not clear `status:blocked` or `status:needs-review`. |
+| `claim_task` | Claim open `status:ready` work, or reclaim expired `status:claimed` or `status:in-progress` work, for 1–24 hours. Default 6. The earliest live claim wins. It does not claim a closed issue, and it does not clear `status:blocked` or `status:needs-review`. |
 | `renew_lease` | The holder posts a new expiry. The original claim comment id stays. |
 | `release_task` | The holder releases and sets `ready`, `blocked`, `needs-review`, `needs-owner`, or `done`. |
 | `post_progress` | Progress comment from the holder. Moves `status:claimed` to `status:in-progress`. |
@@ -53,7 +53,7 @@ Error codes: `invalid_input`, `not_found`, `lease_conflict`, `lease_not_holder`,
 
 `stall` on a task is the same gate lease watch uses. `reason` comes from `stall_reason` (`needs-review`, `handoff`, `needs-owner`, or null). `flagged` is whether `stall:flagged` is already on the issue. `lease_blocks_flag` is true when `assess_lease` says the lease is active, which is when `stall_plan` refuses to flag. These tools do not post `<!-- egregore-stall: -->` and do not add or remove `stall:flagged`. A claim, progress note, or handoff is an ordinary comment, so it counts as newer activity for the next lease-watch run.
 
-`request_review` allows three completed Codex reviews of distinct commits. A fourth request returns `review_limit`. A receipt that already names the current head with no unresolved findings returns `review_current`. Findings on that same head return `review_same_head`. Push a new commit before asking again.
+`request_review` allows three completed Codex reviews of distinct commits. A fourth request returns `review_limit`. A receipt that already names the current head with no unresolved findings returns `review_current`. Findings on that same head return `review_same_head`. Push a new commit before asking again. When a summary and a receipt name the same commit, the summary's `has_unresolved_findings` flag wins, including when the summary was edited after the receipt.
 
 ## Cursor
 

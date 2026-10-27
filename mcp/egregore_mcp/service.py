@@ -111,6 +111,7 @@ def completed_reviews(comments: Sequence[Mapping[str, object]]) -> tuple[list[di
                             "sha": sha,
                             "unresolved": bool(code_review.get("has_unresolved_findings")),
                             "comment_id": str(comment.get("id", "")),
+                            "source": "summary",
                         }
                     )
                     if result_at >= last_result:
@@ -128,6 +129,7 @@ def completed_reviews(comments: Sequence[Mapping[str, object]]) -> tuple[list[di
                         "sha": found.group(1),
                         "unresolved": unresolved,
                         "comment_id": str(comment.get("id", "")),
+                        "source": "receipt",
                     }
                 )
             if result_at >= last_result:
@@ -139,6 +141,17 @@ def completed_reviews(comments: Sequence[Mapping[str, object]]) -> tuple[list[di
     return _merge_rounds(rounds), pending
 
 
+def _merged_unresolved(existing: Mapping[str, object], item: Mapping[str, object]) -> object:
+    """The summary flag wins over a receipt for the same commit, in either order."""
+    if existing.get("source") == "summary" and item.get("source") != "summary":
+        return existing["unresolved"]
+    if item.get("source") == "summary" and existing.get("source") != "summary":
+        return item["unresolved"]
+    if item["unresolved"] is not None:
+        return item["unresolved"]
+    return existing["unresolved"]
+
+
 def _merge_rounds(rounds: list[dict[str, object]]) -> list[dict[str, object]]:
     merged: list[dict[str, object]] = []
     for item in rounds:
@@ -146,12 +159,14 @@ def _merge_rounds(rounds: list[dict[str, object]]) -> list[dict[str, object]]:
         for index, existing in enumerate(merged):
             if not _same_commit(str(existing["sha"]), sha):
                 continue
-            unresolved = item["unresolved"] if item["unresolved"] is not None else existing["unresolved"]
+            unresolved = _merged_unresolved(existing, item)
             longer = sha if len(sha) >= len(str(existing["sha"])) else str(existing["sha"])
+            source = "summary" if "summary" in (existing.get("source"), item.get("source")) else item.get("source")
             merged[index] = {
                 "sha": longer,
                 "unresolved": unresolved,
                 "comment_id": existing["comment_id"],
+                "source": source,
             }
             break
         else:
@@ -774,6 +789,8 @@ class CoordinationService:
     def _claim_refusal(self, issue: Mapping[str, object]) -> dict[str, object] | None:
         if coord.is_pull_request(issue):
             return err("invalid_input", "claim_task applies to issues, not pull requests.")
+        if str(issue.get("state") or "open").lower() == "closed":
+            return err("not_claimable", "This issue is closed. claim_task does not post.")
         if self._needs_owner(issue):
             return err("not_claimable", "This issue is waiting on the owner. claim_task does not override that.")
         labels = coord.label_names(issue.get("labels") or [])
