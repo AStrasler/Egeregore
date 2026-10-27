@@ -2,7 +2,7 @@ name: Issue hygiene
 
 "on":
   issues:
-    types: [opened, edited]
+    types: [opened, edited, closed]
   issue_comment:
     types: [created]
 
