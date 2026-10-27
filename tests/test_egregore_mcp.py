@@ -319,7 +319,6 @@ class ServiceTests(unittest.TestCase):
     def test_only_ready_or_expired_tasks_are_claimable(self) -> None:
         cases = (
             ("[Evidence]: A note", ["type:evidence"], "Saw the branch."),
-            ("[Handoff]: Next step", ["type:handoff", "status:ready", "agent:codex"], "### To\n\ncodex\n"),
             ("[Review]: Check the pull request", ["type:review", "status:ready"], "### Pull request\n\n#14\n"),
             ("[Decision]: Merge the server", ["type:decision", "status:needs-owner"], decision_body()),
             ("[Task]: No status yet", ["type:task"], task_body()),
@@ -341,6 +340,44 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(taken["result"]["lease"]["status"], "active")
         self.assertEqual(taken["result"]["lease"]["agent"], "codex")
         self.assertIn("status:claimed", self.store.label_names(self.number))
+
+    def test_named_role_can_claim_a_ready_handoff(self) -> None:
+        self.cursor.claim_task(self.number)
+        handed = self.cursor.handoff_task(
+            self.number,
+            "codex",
+            "The branch is open.",
+            "Read the pull request.",
+            "Review the MCP server",
+        )
+        self.assertTrue(handed["ok"], handed)
+        number = handed["result"]["handoff_issue"]
+        self.assertIn("status:ready", self.store.label_names(number))
+        wrong = self.cursor.claim_task(number)
+        self.assertEqual(wrong["error"]["code"], "wrong_role")
+        self.assertEqual(self.store.list_comments(number), [])
+        claimed = self.codex.claim_task(number)
+        self.assertTrue(claimed["ok"], claimed)
+        self.assertEqual(claimed["result"]["lease"]["agent"], "codex")
+        self.assertIn("status:claimed", self.store.label_names(number))
+        self.assertIn("agent:codex", self.store.label_names(number))
+
+        blocked = self.store.seed_issue(
+            title="[Handoff]: Waiting",
+            body="### To\n\ncodex\n",
+            labels=["type:handoff", "status:blocked", "agent:codex"],
+        )
+        self.assertEqual(self.codex.claim_task(blocked)["error"]["code"], "not_claimable")
+        self.assertEqual(self.store.list_comments(blocked), [])
+        closed = self.store.seed_issue(
+            title="[Handoff]: Finished",
+            body="### To\n\ncodex\n",
+            labels=["type:handoff", "status:ready", "agent:codex"],
+            state="closed",
+        )
+        self.assertEqual(self.codex.claim_task(closed)["error"]["code"], "not_claimable")
+        self.assertEqual(self.store.list_comments(closed), [])
+        self.assertEqual(self.store.issues[closed]["state"], "closed")
 
     def test_closed_issue_is_not_claimable(self) -> None:
         number = self.store.seed_issue(

@@ -34,7 +34,7 @@ Clients use `http://127.0.0.1:8765/mcp`. `EGREGORE_HTTP_HOST` accepts `127.0.0.1
 | --- | --- |
 | `get_tasks` | List issues. Default kind is `task`. Filters: `state`, `kind`, `status`, `project`, `role`, `limit`. |
 | `get_task` | One issue, its form fields, the current lease, and the stall gate. |
-| `claim_task` | Claim an open `type:task` issue that is `status:ready`, or reclaim one that is `status:claimed` or `status:in-progress` after the lease expired. Default 6 hours, maximum 24. The earliest live claim wins. Evidence, handoff, review, and decision issues are refused, as are closed issues and `status:blocked` or `status:needs-review`. |
+| `claim_task` | Claim an open `type:task` that is `status:ready`, or reclaim one that is `status:claimed` or `status:in-progress` after the lease expired. The role named in `To` may claim a ready handoff on the same rules. Default 6 hours, maximum 24. The earliest live claim wins. Evidence, review, and decision issues are refused, as are closed issues and `status:blocked` or `status:needs-review`. |
 | `renew_lease` | The holder posts a new expiry. The original claim comment id stays. |
 | `release_task` | The holder releases and sets `ready`, `blocked`, `needs-review`, `needs-owner`, or `done`. |
 | `post_progress` | Progress comment from the holder. Moves `status:claimed` to `status:in-progress`. |

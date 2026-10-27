@@ -793,8 +793,14 @@ class CoordinationService:
             return err("not_claimable", "This issue is closed. claim_task does not post.")
         labels = coord.label_names(issue.get("labels") or [])
         title = str(issue.get("title") or "")
-        if "type:task" not in labels or coord.kind_from_title(title) != "task":
-            return err("not_claimable", "claim_task only claims open type:task issues.")
+        kind = coord.kind_from_title(title)
+        is_task = "type:task" in labels and kind == "task"
+        is_handoff = "type:handoff" in labels and kind == "handoff"
+        if not is_task and not is_handoff:
+            return err(
+                "not_claimable",
+                "claim_task only claims open type:task issues, or a handoff for the role named in To.",
+            )
         if self._needs_owner(issue):
             return err("not_claimable", "This issue is waiting on the owner. claim_task does not override that.")
         if "status:done" in labels:
