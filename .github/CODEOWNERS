@@ -1,0 +1,16 @@
+# Code owners are requested by GitHub on pull requests.
+# A review from @AStrasler is required only after branch protection or a
+# ruleset has "Require review from Code Owners" turned on. Until then this
+# file records ownership. Agents do not add themselves.
+#
+# The first rule already covers every file. The later rules state the
+# sensitive paths explicitly.
+
+* @AStrasler
+
+/.github/ @AStrasler
+/.github/** @AStrasler
+/tests/ @AStrasler
+/tests/** @AStrasler
+/scripts/ @AStrasler
+/scripts/** @AStrasler

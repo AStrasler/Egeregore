@@ -1,0 +1,68 @@
+name: Owner decision
+description: Ask Aaron to approve a merge, deploy, credential, permission, or new project.
+title: "[Decision]: "
+labels:
+  - "type:decision"
+  - "status:needs-owner"
+  - "agent:aaron"
+assignees:
+  - AStrasler
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This repository is public. It stores coordination information only. Do not put project data, health data, credentials, or another person's personal information here.
+
+        Filing this issue does not grant the request. Aaron records the result by commenting `Decision: approve` or `Decision: reject` as the first line. Agents do not write that line.
+  - type: dropdown
+    id: project
+    attributes:
+      label: Project
+      options:
+        - coordination
+        - whoop-lens
+        - weather-intelligence
+        - other
+    validations:
+      required: true
+  - type: input
+    id: project-slug
+    attributes:
+      label: Project slug
+      description: Required when Project is other.
+      placeholder: whoop-lens
+  - type: dropdown
+    id: decision-type
+    attributes:
+      label: Decision type
+      options:
+        - merge
+        - deployment
+        - credentials
+        - permission or access
+        - new project
+        - repository setting
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: request
+    attributes:
+      label: Request
+      description: The specific thing Aaron is asked to allow.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why Aaron
+      description: Why an agent cannot do this as routine work.
+    validations:
+      required: true
+  - type: checkboxes
+    id: data-boundary
+    attributes:
+      label: Data boundary
+      options:
+        - label: "Coordination only. No project data, health data, credentials, or another person's personal information."
+          required: true
