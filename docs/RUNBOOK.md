@@ -33,11 +33,11 @@ Then:
 
 ### Reviews
 
-Codex reviews pull requests through `chatgpt-codex-connector[bot]`. The bot's comment on pull request #8 lists the triggers: open the pull request, mark a draft ready, or comment `@codex review` or `@codex security review` on that pull request. The bot reacts with 👀 while a review runs. It comments when it has findings. It reacts with 👍 when the review finishes with no findings. Pull request #8 got that 👍 on commit `07d5bb4`. The visible table names the commit. The comment source also carries `has_unresolved_findings`. The GitHub approving-review list can stay empty. A 👍 does not merge the pull request.
+Codex reviews pull requests through `chatgpt-codex-connector[bot]`. On pull request #8 the bot's own comment lists the triggers: open the pull request, mark a draft ready, or comment `@codex review` or `@codex security review` on that pull request. The bot reacts with 👀 while a review runs. It comments when it has findings. It reacts with 👍 when the review finishes with no findings. Pull request #8 got that 👍 on commit `07d5bb4`. The visible table names the commit. The comment source also carries `has_unresolved_findings`. The GitHub approving-review list can stay empty. A 👍 does not merge the pull request.
 
-Mentioning `@codex` on an issue does not start a review. On 2026-10-27 the same bot replied to that mention on issue #2 with a request to create a Codex cloud environment. There is no Codex cloud environment for this repo. Do not mention `@codex` on issues.
+A pass is that summary for the current head, plus the 👍. The other reply this bot posts is a request to create a Codex cloud environment. Issue #2 got that reply from an `@codex` mention. Pull request #9 got the same reply, and no review summary, after it was opened. That description contained `@codex`, and the pull request is docs-only. There is no Codex cloud environment for this repo. Do not mention `@codex` on an issue. Do not put `@codex` in a pull request description. After one environment reply, stop. Another mention repeats it.
 
-Skip the review-request issue when the pull request is in a repo the app already reviews. This repo is one of those. The form can record a link. Waiting on an issue reply does not reach Codex. Leave `status:needs-review` for a pull request whose review is still running, then move it when the bot finishes.
+Skip a review-request issue for a pull request in this repo. The form can record a link. An issue reply is not the review. Leave `status:needs-review` only while a pull-request review is still running, then move the task when the bot finishes.
 
 After a 👍 whose summary names the current head and reports no unresolved findings, set the task to `status:needs-owner` and `agent:aaron`, release the lease, and stop. Aaron merges.
 
@@ -107,7 +107,7 @@ One owner decision per request. A task already labeled `status:needs-owner` with
 ### Noise
 
 - One Progress comment when the state changes. Commit-by-commit comments are noise.
-- Do not mention `@codex` on issues. Do not mention `@AStrasler` to request a merge the open pull request already shows.
+- Do not mention `@codex` on an issue or in a pull request description. Pull request #9's description did, and the bot answered with the cloud-environment reply. Do not mention `@AStrasler` to request a merge the open pull request already shows.
 - The owner-decision form assigns `@AStrasler`. Other forms leave assignees empty. Do not add assignees.
 - Hygiene, lease, and decision notes are keyed so the workflow updates or skips. Do not reply to `github-actions[bot]`, and do not treat its comment as a claim.
 - Do not dispatch lease watch because the last run was quiet.
@@ -125,7 +125,7 @@ After a third completed review that still has findings, stop. Set `status:needs-
 Check this list before opening a defect task or an owner decision about how the system behaves. If the item is listed, use the workaround and stop.
 
 1. ChatGPT, Grokbot, Cursor, and the Codex role post as `@AStrasler`. GitHub cannot tell those posts from Aaron. Issue #2 recorded a `Decision: approve` written through his connected account. The workflow stored a note and changed no labels. A comment is not his approval.
-2. Codex does not review issues. The miss on #2 is the missing cloud environment, not a failed review. Use the pull request path.
+2. The cloud-environment reply is not a review. Issue #2 and pull request #9 both received it, and #9 received no review summary. Pull request #8 received a 👍 without that reply. Do not file the missing environment again, and do not mention the bot a second time to force the review.
 3. Lease watch does not relabel `status:needs-review`, `status:blocked`, or a stale `agent:` label. Issue #2 shows the leftover. Move the label by hand.
 4. Issue comments are not a lock. Two claims can land before either is visible. The earlier valid lease holds. Simultaneous claims were not part of the Phase 2 live run.
 5. The daily cron was not observed in Phase 2. `workflow_dispatch` was. Cron can be late. Reclaim from comments.
