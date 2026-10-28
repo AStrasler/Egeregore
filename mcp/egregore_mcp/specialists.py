@@ -62,20 +62,52 @@ def get_specialists(
         entry_id = item["id"]
         entry_kind = item["kind"]
         entry_role = item["role"]
+        plugin = item["plugin"]
         path = item["path"]
-        segments = path.split("/")
+        source_repo = item.get("source_repository", fork)
+        source_commit = item.get("source_commit", commit)
         if (
             not _SLUG.fullmatch(entry_id)
             or not _SLUG.fullmatch(entry_role)
+            or not _SLUG.fullmatch(plugin)
             or entry_kind not in _ALLOWED_KINDS
-            or len(segments) < 4
-            or segments[0] != "plugins"
-            or segments[1] != item["plugin"]
-            or any(segment in ("", ".", "..") for segment in segments)
-            or "\\" in path
+            or not isinstance(source_repo, str)
+            or not isinstance(source_commit, str)
+            or not _SHA.fullmatch(source_commit)
+            or any(segment in ("", ".", "..") for segment in path.split("/"))
+            or "\\\\" in path
             or ":" in path
         ):
             return _failure("unconfigured", "The specialist catalog contains an unsafe entry.")
+
+        # External prompts are intentionally opt-in and source-pinned.
+        # Adding a repository to the catalog is a reviewed code change.
+        if source_repo == fork:
+            segments = path.split("/")
+            allowed_path = (
+                len(segments) >= 4
+                and segments[0] == "plugins"
+                and segments[1] == plugin
+                and (
+                    (entry_kind == "agent" and len(segments) == 4
+                     and segments[2] == "agents" and segments[3].endswith(".md"))
+                    or (entry_kind == "skill" and len(segments) == 5
+                        and segments[2] == "skills" and segments[4] == "SKILL.md")
+                )
+            )
+            if source_commit != commit or not allowed_path:
+                return _failure("unconfigured", "The fork specialist path or commit is invalid.")
+        elif source_repo == "DietrichGebert/ponytail":
+            if (
+                entry_id != "ponytail" or plugin != "ponytail"
+                or entry_kind != "skill" or entry_role != "code-implementer"
+                or path != "skills/ponytail/SKILL.md"
+                or source_commit != "09c434ab73ca43761c5d8b0c5d341926c2fba710"
+            ):
+                return _failure("unconfigured", "The Ponytail source is not the reviewed pinned skill.")
+        else:
+            return _failure("unconfigured", "The catalog contains an unapproved source repository.")
+
         if role and entry_role != role:
             continue
         if kind and entry_kind != kind:
@@ -87,9 +119,11 @@ def get_specialists(
                 "id": entry_id,
                 "kind": entry_kind,
                 "role": entry_role,
-                "plugin": item["plugin"],
+                "plugin": plugin,
                 "path": path,
-                "source_url": f"https://github.com/{fork}/blob/{commit}/{quote(path, safe='/')}",
+                "source_repository": source_repo,
+                "source_commit": source_commit,
+                "source_url": f"https://github.com/{source_repo}/blob/{source_commit}/{quote(path, safe='/')}",
             }
         )
 
@@ -105,7 +139,7 @@ def get_specialists(
             "upstream_commit": catalog.get("upstream_commit"),
             "capability": "catalog-only",
             "note": (
-                "These are reference links, not callable agents. A Cursor/Codex "
+                "These are opt-in reference links, not callable agents. A Cursor/Codex "
                 "client must load the chosen prompt with its own permissions. "
                 "No cross-agent communication or new access is granted."
             ),
