@@ -42,6 +42,7 @@ Clients use `http://127.0.0.1:8765/mcp`. `EGREGORE_HTTP_HOST` accepts `127.0.0.1
 | `request_review` | Posts a pull-request comment whose body is exactly `@codex review`. Refuses a closed or merged pull request, a second request for the same head, and a fourth completed round. |
 | `get_owner_decisions` | Decision issues and `Decision:` comments. |
 | `get_task_history` | Comment history with credential-shaped text redacted. |
+| `get_specialists` | Read-only discovery of five pinned specialist agent/skill references from `AStrasler/agents` (filters: `role`, `kind`, `specialist_id`). Does not load or run prompts. |
 
 A result is JSON: `{"ok": true, "result": ...}` or `{"ok": false, "error": {"code": "...", "message": "...", "details": {}}}`.
 
@@ -130,6 +131,10 @@ Unit tests call the tools with an in-memory GitHub. The protocol test starts the
 This branch is rebased on `main` at `0e1e4a2` (pull requests #9 and #11). It imports `scripts/coordination.py` and does not edit it.
 
 `assess_lease`, `lease_conflict_comment`, and `conflict_comment_needed` are the claim path. `decision_plan` is the owner-decision path, and its authorization stays `recorded` or `none`. `stall_plan` stays in lease watch. The MCP reads `stall_reason` and the `stall:flagged` label, and it does not flag stalls itself. A live lease is not idle under `stall_plan`.
+
+## Specialist catalog
+
+The optional specialist catalog is a **source-reference index**, not an agent runtime. `get_specialists` returns five pinned files in the [AStrasler/agents](https://github.com/AStrasler/agents) fork, linked to the upstream `wshobson/agents` project. It does not copy prompt bodies, install skills, invoke specialists, add repositories, or grant any permission. Cursor/Codex must load chosen prompts separately using their own access and sandbox. See [docs/SPECIALISTS.md](../docs/SPECIALISTS.md).
 
 ## Limits
 
