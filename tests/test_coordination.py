@@ -1329,7 +1329,8 @@ class RepoPolicyTests(unittest.TestCase):
         self.assertIn("3,000", security)
         self.assertIn("larger runners", security)
         self.assertIn("SECURITY.md#switching-this-repository-to-private", operations)
-        self.assertIn("There is no MCP server", readme)
+        self.assertIn("mcp/README.md", readme)
+        self.assertIn("no Cloudflare, Vercel, or Supabase service", readme)
         self.assertIn("WHOOP-Lens", onboarding)
         self.assertIn("does not grant", onboarding)
 
