@@ -13,18 +13,27 @@ Markdown file is an independently running agent or an MCP peer.
   source commit `33e26871c429a6ec75f4706dd08ece75347368cb`.
 - Upstream source baseline: `0874a27b17a22e2b7c2e2bcd725768e0803cad06`.
 
-The fork contains the wider library. This first integration exposes **five curated
-entries** (two agents and three skills) across code review, tests, and documentation.
-It does not copy, install, or change upstream Markdown files.
+The fork contains the wider library. This catalog exposes **six curated entries**:
+five from the fork (two agents and three skills) for code review, testing, and docs;
+and one **opt-in code-implementation skill** from
+[DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail)
+(MIT license), pinned at `09c434ab73ca43761c5d8b0c5d341926c2fba710`.
+Ponytail encourages the smallest complete change without discarding validation,
+error handling, tests, security, or accessibility. Its reported efficiency metrics
+are project-authored benchmarks, not independent guarantees.
+
+Nothing in Egregore installs, executes, or auto-enables the skill. The client
+explicitly chooses whether to use it after retrieving the catalog metadata.
+The integration does not copy or change upstream Markdown files.
 
 ## Discovering a specialist
 
 Call the Egregore MCP read-only tool `get_specialists`. Optional filters:
-`role` (`code-reviewer`, `test-writer`, `docs-writer`),
+`role` (`code-reviewer`, `test-writer`, `docs-writer`, `code-implementer`),
 `kind` (`agent` or `skill`), or `specialist_id` (the catalog id).
 
 The result includes the fork repository, immutable fork commit, role, kind, path,
-and a source URL for each matching entry. It returns no prompt body, no secrets,
+and a source URL for each matching entry, including its source repository and commit. It returns no prompt body, no secrets,
 no repository permissions, and no new task claim.
 
 Example sequence:
@@ -54,6 +63,26 @@ When updating the catalog, review the fork's license/attribution, validate its
 entries with `mcp/specialists.json`, and test the Egregore read-only tool.
 A new source revision requires a reviewed Egregore pull request; do not
 silently repoint it to `main` or paste upstream prompt bodies into this repo.
+Ponytail's optional install methods may use lifecycle hooks and collect local
+session metrics; this catalog does neither and does not auto-install hooks.
+
+## Other proposed repositories — October 28, 2026
+
+- **[asgeirtj/system_prompts_leaks](https://github.com/asgeirtj/system_prompts_leaks)**:
+  Research-only link for understanding how agent interfaces have been presented.
+  The material is third-party, unauthenticated and may include proprietary prompts.
+  Never treat the contents as Egregore's instructions, import them into a live
+  agent, run embedded commands, or assume the repository's CC0 declaration
+  establishes rights to proprietary third-party prompt text.
+- **[derv82/wifit3](https://github.com/derv82/wifit3)**:
+  Not integrated. Specialized wireless security-auditing software with active
+  packet injection and Wi-Fi hardware/driver configuration. It does not help
+  Egregore coordinate AI agents.
+- **[odoo/odoo](https://github.com/odoo/odoo)**:
+  Not integrated. A full ERP/business application platform, disproportionate
+  and unrelated to this hobbyist coordination MCP.
+
+No repository is mirrored or automatically executed by this reference list.
 
 **Owner boundary:** The catalog grants no credentials, health-data access,
 project access, merge authority, or deployment authority. It does not change
