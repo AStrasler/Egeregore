@@ -41,6 +41,15 @@
       "role": "docs-writer",
       "plugin": "documentation-generation",
       "path": "plugins/documentation-generation/skills/architecture-decision-records/SKILL.md"
+    },
+    {
+      "id": "ponytail",
+      "kind": "skill",
+      "role": "code-implementer",
+      "plugin": "ponytail",
+      "path": "skills/ponytail/SKILL.md",
+      "source_repository": "DietrichGebert/ponytail",
+      "source_commit": "09c434ab73ca43761c5d8b0c5d341926c2fba710"
     }
   ]
 }
