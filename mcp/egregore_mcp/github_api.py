@@ -1,7 +1,8 @@
 """GitHub REST client for the coordination MCP server.
 
-The token comes from the environment at process start. This module does not
-read a token file, and it does not put the token into errors or logs.
+The bearer token is either a static local token or a provider that returns a
+GitHub App installation token. This module does not read a token file, and it
+does not put the token into errors or logs.
 """
 
 from __future__ import annotations
@@ -10,7 +11,7 @@ import json
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Mapping
+from typing import Callable, Mapping
 
 
 class GitHubError(Exception):
@@ -21,12 +22,25 @@ class GitHubError(Exception):
 
 
 class RestGitHub:
-    """A small slice of the GitHub REST API. Stdlib only, no extra package."""
+    """A small slice of the GitHub REST API, using the standard-library HTTP client."""
 
-    def __init__(self, *, api: str, token: str, repo: str) -> None:
+    def __init__(
+        self,
+        *,
+        api: str,
+        repo: str,
+        token: str = "",
+        token_provider: Callable[[], str] | None = None,
+    ) -> None:
+        if token_provider is None and not token:
+            raise ValueError("RestGitHub needs a token or a token_provider")
         self.api = api.rstrip("/")
         self._token = token
+        self._token_provider = token_provider
         self.repo = repo
+        self._secrets: list[str] = []
+        if token:
+            self._remember(token)
 
     def list_issues(self, *, state: str) -> list[dict[str, object]]:
         payload = self._request("GET", "issues", query={"state": state, "per_page": "100"})
@@ -125,7 +139,7 @@ class RestGitHub:
     def _once(self, method: str, url: str, body: Mapping[str, object] | None) -> tuple[object, str | None]:
         data = None if body is None else json.dumps(body).encode("utf-8")
         request = urllib.request.Request(url, data=data, method=method)
-        request.add_header("Authorization", f"Bearer {self._token}")
+        request.add_header("Authorization", f"Bearer {self._bearer()}")
         request.add_header("Accept", "application/vnd.github+json")
         request.add_header("X-GitHub-Api-Version", "2022-11-28")
         request.add_header("User-Agent", "egregore-mcp/0.1")
@@ -159,9 +173,23 @@ class RestGitHub:
         line = (text[0] if text else "GitHub request failed")[:300]
         return f"GitHub HTTP {status}: {line}"
 
+    def _bearer(self) -> str:
+        if self._token_provider is not None:
+            value = self._token_provider()
+            if not isinstance(value, str) or not value:
+                raise GitHubError(0, "GitHub authentication did not return a token")
+            self._remember(value)
+            return value
+        return self._token
+
+    def _remember(self, value: str) -> None:
+        if len(value) < 8 or value in self._secrets:
+            return
+        self._secrets.append(value)
+
     def _scrub(self, text: str) -> str:
-        if self._token:
-            text = text.replace(self._token, "[redacted]")
+        for secret in sorted(self._secrets, key=len, reverse=True):
+            text = text.replace(secret, "[redacted]")
         return text
 
     def _next_link(self, header: str | None) -> str | None:

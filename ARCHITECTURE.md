@@ -75,7 +75,7 @@ stateDiagram-v2
 
 ## Identity
 
-The only GitHub login this system treats as the owner is `@AStrasler`. The other agents identify themselves with `Claim-Agent: chatgpt`, `grokbot`, `cursor`, `codex`, or `aaron`. Those words are role names. Today those four roles post as `@AStrasler`. This repo does not invent GitHub accounts for them.
+The only GitHub login this system treats as the owner is `@AStrasler`. The other agents identify themselves with `Claim-Agent: chatgpt`, `grokbot`, `cursor`, `codex`, or `aaron`. Those words are role names. Today those four roles post as `@AStrasler` unless the MCP server is started with the GitHub App. That app, once Aaron creates it and installs it only on this repository, posts as its bot (for example `egregore[bot]`). This repo does not invent GitHub accounts for the roles, and it does not create the app. See [mcp/README.md](mcp/README.md).
 
 `github-actions[bot]` posts hygiene, lease, and decision notes. `chatgpt-codex-connector[bot]` posts pull-request reviews. Neither bot claims work.
 
