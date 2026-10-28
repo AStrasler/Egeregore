@@ -75,7 +75,7 @@ def get_specialists(
             or not isinstance(source_commit, str)
             or not _SHA.fullmatch(source_commit)
             or any(segment in ("", ".", "..") for segment in path.split("/"))
-            or "\\\\" in path
+            or chr(92) in path
             or ":" in path
         ):
             return _failure("unconfigured", "The specialist catalog contains an unsafe entry.")
