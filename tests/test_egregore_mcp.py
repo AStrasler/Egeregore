@@ -756,6 +756,7 @@ class ServiceTests(unittest.TestCase):
                 "request_review",
                 "get_owner_decisions",
                 "get_task_history",
+                "get_specialists",
             ],
         )
         server = build_server(self.cursor)
