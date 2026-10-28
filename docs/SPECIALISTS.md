@@ -66,7 +66,7 @@ silently repoint it to `main` or paste upstream prompt bodies into this repo.
 Ponytail's optional install methods may use lifecycle hooks and collect local
 session metrics; this catalog does neither and does not auto-install hooks.
 
-## Other proposed repositories — October 28, 2026
+## Research-only reference — October 28, 2026
 
 - **[asgeirtj/system_prompts_leaks](https://github.com/asgeirtj/system_prompts_leaks)**:
   Research-only link for understanding how agent interfaces have been presented.
@@ -74,13 +74,6 @@ session metrics; this catalog does neither and does not auto-install hooks.
   Never treat the contents as Egregore's instructions, import them into a live
   agent, run embedded commands, or assume the repository's CC0 declaration
   establishes rights to proprietary third-party prompt text.
-- **[derv82/wifit3](https://github.com/derv82/wifit3)**:
-  Not integrated. Specialized wireless security-auditing software with active
-  packet injection and Wi-Fi hardware/driver configuration. It does not help
-  Egregore coordinate AI agents.
-- **[odoo/odoo](https://github.com/odoo/odoo)**:
-  Not integrated. A full ERP/business application platform, disproportionate
-  and unrelated to this hobbyist coordination MCP.
 
 No repository is mirrored or automatically executed by this reference list.
 
