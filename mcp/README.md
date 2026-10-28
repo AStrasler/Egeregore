@@ -42,7 +42,7 @@ Clients use `http://127.0.0.1:8765/mcp`. `EGREGORE_HTTP_HOST` accepts `127.0.0.1
 | `request_review` | Posts a pull-request comment whose body is exactly `@codex review`. Refuses a closed or merged pull request, a second request for the same head, and a fourth completed round. |
 | `get_owner_decisions` | Decision issues and `Decision:` comments. |
 | `get_task_history` | Comment history with credential-shaped text redacted. |
-| `get_specialists` | Read-only discovery of five pinned specialist agent/skill references from `AStrasler/agents` (filters: `role`, `kind`, `specialist_id`). Does not load or run prompts. |
+| `get_specialists` | Read-only discovery of six pinned agent/skill references (five from `AStrasler/agents` and optional `DietrichGebert/ponytail`) (filters: `role`, `kind`, `specialist_id`). Does not load or run prompts. |
 
 A result is JSON: `{"ok": true, "result": ...}` or `{"ok": false, "error": {"code": "...", "message": "...", "details": {}}}`.
 
@@ -134,7 +134,7 @@ This branch is rebased on `main` at `0e1e4a2` (pull requests #9 and #11). It imp
 
 ## Specialist catalog
 
-The optional specialist catalog is a **source-reference index**, not an agent runtime. `get_specialists` returns five pinned files in the [AStrasler/agents](https://github.com/AStrasler/agents) fork, linked to the upstream `wshobson/agents` project. It does not copy prompt bodies, install skills, invoke specialists, add repositories, or grant any permission. Cursor/Codex must load chosen prompts separately using their own access and sandbox. See [docs/SPECIALISTS.md](../docs/SPECIALISTS.md).
+The optional specialist catalog is a **source-reference index**, not an agent runtime. `get_specialists` returns five pinned files in the [AStrasler/agents](https://github.com/AStrasler/agents) fork plus one optional coding skill from [Ponytail](https://github.com/DietrichGebert/ponytail). It does not copy prompt bodies, install skills, invoke specialists, add repositories, or grant any permission. Cursor/Codex must load chosen prompts separately using their own access and sandbox. See [docs/SPECIALISTS.md](../docs/SPECIALISTS.md).
 
 ## Limits
 
