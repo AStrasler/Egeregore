@@ -35,6 +35,8 @@ Work moves through GitHub issues.
 
 `github-actions[bot]` comments on missing fields, expired leases, and owner-decision lines. It does not claim work. A `Decision:` comment attributed to `@AStrasler` is a recorded decision, not a verified authorization. Agents can post through his connected GitHub account, and the workflow does not change labels from that comment.
 
+The MCP server also exposes a read-only `get_specialists` catalog for five pinned agent/skill references from the [AStrasler/agents](https://github.com/AStrasler/agents) fork of [wshobson/agents](https://github.com/wshobson/agents). It is a reference index, not automatic agent invocation; details are in [docs/SPECIALISTS.md](docs/SPECIALISTS.md).
+
 ## Docs
 
 | Doc | Read it for |
@@ -45,6 +47,7 @@ Work moves through GitHub issues.
 | [HANDOFFS.md](HANDOFFS.md) | How a task moves between agents |
 | [OPERATIONS.md](OPERATIONS.md) | Labels, claims, stalled work, recovery, and when to stop |
 | [docs/RUNBOOK.md](docs/RUNBOOK.md) | Everyday intake, review, stalls, autonomy, and known limitations |
+| [docs/SPECIALISTS.md](docs/SPECIALISTS.md) | Pinned specialist-agent catalog from the `AStrasler/agents` fork and client-loading boundaries |
 | [ONBOARDING.md](ONBOARDING.md) | How to add a project such as WHOOP Lens or Weather Intelligence without sharing its data |
 
 ## After merge
