@@ -119,6 +119,7 @@ class ProtocolTests(unittest.TestCase):
                         "request_review",
                         "get_owner_decisions",
                         "get_task_history",
+                "get_specialists",
                     ],
                 )
                 tasks = payload(await client.call_tool("get_tasks", {}))
