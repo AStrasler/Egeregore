@@ -35,7 +35,7 @@ Work moves through GitHub issues.
 
 `github-actions[bot]` comments on missing fields, expired leases, and owner-decision lines. It does not claim work. A `Decision:` comment attributed to `@AStrasler` is a recorded decision, not a verified authorization. Agents can post through his connected GitHub account, and the workflow does not change labels from that comment.
 
-The MCP server also exposes a read-only `get_specialists` catalog for five pinned agent/skill references from the [AStrasler/agents](https://github.com/AStrasler/agents) fork of [wshobson/agents](https://github.com/wshobson/agents). It is a reference index, not automatic agent invocation; details are in [docs/SPECIALISTS.md](docs/SPECIALISTS.md).
+The MCP server also exposes a read-only `get_specialists` catalog for six pinned agent/skill references: five from the [AStrasler/agents](https://github.com/AStrasler/agents) fork of [wshobson/agents](https://github.com/wshobson/agents), plus the optional [Ponytail](https://github.com/DietrichGebert/ponytail) coding skill. It is a reference index, not automatic agent invocation; details are in [docs/SPECIALISTS.md](docs/SPECIALISTS.md).
 
 ## Docs
 
