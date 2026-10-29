@@ -37,17 +37,45 @@ _COMMENT = re.compile(r"<!--.*?(?:-->|\Z)", re.DOTALL)
 _WORD = re.compile(r"[^\W_]")
 
 
+def _strip_comments(line: str, in_comment: bool) -> tuple[str, bool]:
+    """Remove HTML comment text from one line. Returns the rest and whether a comment is still open."""
+    kept: list[str] = []
+    pos = 0
+    while pos < len(line):
+        if in_comment:
+            end = line.find("-->", pos)
+            if end < 0:
+                return "".join(kept), True
+            pos = end + 3
+            in_comment = False
+        else:
+            start = line.find("<!--", pos)
+            if start < 0:
+                kept.append(line[pos:])
+                break
+            kept.append(line[pos:start])
+            pos = start + 4
+            in_comment = True
+    return "".join(kept), in_comment
+
+
 def parse_sections(body: str) -> dict[str, str]:
     """Map each level-2 heading (lower case) to the text under it.
 
     A section runs to the next level-1 or level-2 heading. Deeper headings stay
-    inside it. Headings inside a fenced code block are text, not headings. When
-    a heading appears twice, the texts are joined.
+    inside it. Headings inside a fenced code block are text, not headings.
+    Text inside an HTML comment is hidden from the reader, so it can neither
+    start, end nor fill a section. Comments inside a code fence are literal
+    text. When a heading appears twice, the texts are joined.
     """
     sections: dict[str, list[str]] = {}
     current: str | None = None
     fence: tuple[str, int] | None = None
-    for line in (body or "").splitlines():
+    in_comment = False
+    for raw in (body or "").splitlines():
+        line = raw
+        if fence is None:
+            line, in_comment = _strip_comments(raw, in_comment)
         marker = _FENCE.match(line)
         if marker:
             run = marker.group(1)

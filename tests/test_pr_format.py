@@ -61,6 +61,31 @@ class ParseSectionsTests(unittest.TestCase):
         body = "## What\n    ## Why\nnot indented code? yes it is\n#Why\n"
         self.assertEqual(list(pf.parse_sections(body)), ["what"])
 
+    def test_headings_inside_html_comments_are_hidden(self) -> None:
+        body = "<!--\n## What\nhidden\n## Why\nhidden\n-->\n"
+        self.assertEqual(pf.parse_sections(body), {})
+        wrapped = "<!--\n## What\nreal looking\n\n## Why\nreal looking\n\n## Verification\nran it\n-->"
+        self.assertEqual(len(problems(wrapped, CODE)), 3, "a fully commented description is missing every section")
+
+    def test_a_commented_example_heading_does_not_end_a_section(self) -> None:
+        body = "## What\nfirst\n<!--\n## Why\nexample\n-->\nsecond\n## Why\nreason\n"
+        sections = pf.parse_sections(body)
+        self.assertEqual(sections["what"].split(), ["first", "second"])
+        self.assertEqual(sections["why"], "reason")
+        self.assertEqual(problems(body, MD_ONLY), [])
+
+    def test_comment_edges_on_one_line(self) -> None:
+        self.assertEqual(list(pf.parse_sections("## What <!-- x -->\ntext\n")), ["what"])
+        self.assertEqual(list(pf.parse_sections("<!-- a --> ## What\ntext\n")), ["what"])
+        self.assertEqual(pf.parse_sections("## What\n<!-- a -->kept<!-- b -->\n")["what"], "kept")
+        self.assertEqual(pf.parse_sections("## What\n<!-- a\nb --> after\n")["what"].strip(), "after")
+        self.assertEqual(list(pf.parse_sections("<!-- ``` -->\n## What\ntext\n")), ["what"], "a fence marker in a comment is hidden")
+        self.assertEqual(list(pf.parse_sections("## What\n<!-- never closed\n## Why\ntext\n")), ["what"])
+
+    def test_a_comment_in_a_code_fence_is_literal_text(self) -> None:
+        body = "## What\n```\n<!--\n```\n## Why\nreason\n"
+        self.assertEqual(list(pf.parse_sections(body)), ["what", "why"])
+
     def test_duplicate_headings_are_joined(self) -> None:
         sections = pf.parse_sections("## What\none\n## Why\nx\n## What\ntwo\n")
         self.assertEqual(sections["what"], "one\ntwo")
