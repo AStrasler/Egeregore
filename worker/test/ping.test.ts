@@ -38,7 +38,7 @@ const INIT = {
   },
 };
 
-describe("egregore worker scaffold", () => {
+describe("egregore worker ping and transport", () => {
   it("initializes and names itself egregore", async () => {
     const res = await rpc(INIT);
     expect(res.status).toBe(200);
@@ -46,11 +46,13 @@ describe("egregore worker scaffold", () => {
     expect(msg.result.serverInfo.name).toBe("egregore");
   });
 
-  it("lists exactly one tool: ping", async () => {
+  it("lists ping and the five read tools", async () => {
     const res = await rpc({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
     expect(res.status).toBe(200);
     const msg = await message(res);
-    expect(msg.result.tools.map((t: { name: string }) => t.name)).toEqual(["ping"]);
+    expect(msg.result.tools.map((t: { name: string }) => t.name).sort()).toEqual(
+      ["get_owner_decisions", "get_specialists", "get_task", "get_task_history", "get_tasks", "ping"],
+    );
   });
 
   it("answers ping with pong", async () => {
