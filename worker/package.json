@@ -2,7 +2,7 @@
   "name": "egeregore-worker",
   "version": "0.0.0",
   "private": true,
-  "description": "Egregore MCP server for Cloudflare Workers (read-only core: five read tools and ping).",
+  "description": "Egregore MCP server for Cloudflare Workers (five read tools, six write tools and ping; closed until caller authentication lands).",
   "type": "module",
   "engines": {
     "node": ">=22.12.0"
