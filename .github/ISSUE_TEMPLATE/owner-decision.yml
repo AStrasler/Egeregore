@@ -45,6 +45,14 @@ body:
         - other
     validations:
       required: true
+  - type: input
+    id: supersedes
+    attributes:
+      label: Supersedes
+      description: "Issue number of an earlier decision issue this one replaces, such as #14. Write none if it replaces nothing. Naming an issue here does not close it or undo anything it recorded."
+      placeholder: none
+    validations:
+      required: true
   - type: textarea
     id: request
     attributes:
@@ -59,6 +67,13 @@ body:
       description: Why an agent cannot do this as routine work.
     validations:
       required: true
+  - type: checkboxes
+    id: duplicate-check
+    attributes:
+      label: Duplicate check
+      options:
+        - label: "I searched open and closed [Decision] issues for this same request. Any match is named in Supersedes or linked in the Request."
+          required: true
   - type: checkboxes
     id: data-boundary
     attributes:

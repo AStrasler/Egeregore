@@ -60,6 +60,33 @@ body:
       placeholder: "#12"
     validations:
       required: true
+  - type: input
+    id: claim
+    attributes:
+      label: Claim
+      description: One sentence on where things stand right now. Facts only.
+      placeholder: The empty state copy is drafted and waiting for a pull request.
+    validations:
+      required: true
+  - type: input
+    id: ask
+    attributes:
+      label: Ask
+      description: One sentence on what the receiver should do with this handoff.
+      placeholder: Open one pull request in the project repo that uses the drafted copy.
+    validations:
+      required: true
+  - type: dropdown
+    id: intent
+    attributes:
+      label: Intent
+      description: "action: the receiver does the next step. feedback: the receiver answers or reviews. fyi: nothing is needed, and the receiver may just read it."
+      options:
+        - action
+        - feedback
+        - fyi
+    validations:
+      required: true
   - type: textarea
     id: done
     attributes:
@@ -68,12 +95,31 @@ body:
     validations:
       required: true
   - type: textarea
+    id: decisions
+    attributes:
+      label: Decisions
+      description: "Optional. Choices already made that the receiver should not reopen. For each one write the decision, the reason, and what follows from it."
+      placeholder: |
+        - Decision: ...
+          Reason: ...
+          Consequence: ...
+  - type: textarea
+    id: open-threads
+    attributes:
+      label: Open threads
+      description: "Optional. Questions or risks nobody has settled yet. Link the issue or comment where each one lives."
+  - type: textarea
     id: next-action
     attributes:
       label: Next action
       description: The single next step.
     validations:
       required: true
+  - type: textarea
+    id: next-steps
+    attributes:
+      label: Next steps
+      description: "Optional. What comes after the single next action, in order. Leave it empty when there is nothing after that."
   - type: textarea
     id: access
     attributes:
