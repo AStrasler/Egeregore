@@ -190,6 +190,8 @@ class FakeGitHub:
         }
         if "pull_request" in issue:
             payload["pull_request"] = issue["pull_request"]
+        if "updated_at" in issue:
+            payload["updated_at"] = issue["updated_at"]
         return payload
 
 

@@ -66,6 +66,11 @@ export interface FakeOptions {
    * `skip` lets that many matching requests through first, and `text` sends a plain-text body.
    */
   failWith?: { status: number; times: number; match?: RegExp; method?: string; skip?: number; text?: string };
+  /**
+   * Someone else edits an issue while the Worker's list call is in flight. `set` is merged
+   * into that issue the first time `op` runs. Mirrors the drift in record.py.
+   */
+  drift?: { op: "list_issues"; number: number; set: Json };
   /** Login on comments the fake creates. */
   botLogin?: string;
 }
@@ -275,6 +280,12 @@ export class FakeGitHub {
   }
 
   private listIssues(parsed: URL): Response {
+    const drift = this.options.drift;
+    if (drift && drift.op === "list_issues") {
+      const row = this.dataset.issues.find((item) => item.number === drift.number);
+      if (row) Object.assign(row, drift.set);
+      this.options.drift = undefined;
+    }
     const state = parsed.searchParams.get("state") ?? "open";
     const rows = this.dataset.issues.filter((item) => state === "all" || item.state === state);
     return this.page(parsed, rows);

@@ -1105,6 +1105,35 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("status:done", self.store.label_names(number))
         self.assertEqual(coord.assess_lease(self.store.list_comments(number), NOW).status, "active")
 
+    def test_status_done_is_refused_when_the_issue_changes_while_the_gate_is_read(self) -> None:
+        number = self._fresh_claim(task_body(outcome="Research only.", context="Notes.", out_of_scope="Nothing."))
+        self.store.create_comment(number, "## Evidence\n\nDone.\n")
+        before = len(self.store.list_comments(number))
+        real = self.store.list_issues
+
+        def edited_meanwhile(**kwargs: object) -> object:
+            # The evidence lookup is the slow part of the gate. Someone edits the issue during it.
+            self.store.issues[number]["updated_at"] = "2026-10-29T12:30:00Z"
+            return real(**kwargs)
+
+        self.store.list_issues = edited_meanwhile  # type: ignore[method-assign]
+        # An evidence comment short-circuits the lookup, so make the gate need it.
+        self.store.comments[number] = [c for c in self.store.comments[number] if "## Evidence" not in str(c["body"])]
+        evidence = self.store.seed_issue(
+            title="[Evidence]: for it",
+            body=f"### Related issue\n\n#{number}\n",
+            labels=["type:evidence"],
+        )
+        self.assertIsNotNone(evidence)
+        refused = self.cursor.release_task(number, "done", "finished")
+        self.assertEqual(refused["error"]["code"], "stale_plan", refused)
+        self.assertNotIn("status:done", self.store.label_names(number))
+        self.assertEqual(len(self.store.list_comments(number)), before - 1)
+        self.store.list_issues = real  # type: ignore[method-assign]
+        retried = self.cursor.release_task(number, "done", "finished")
+        self.assertTrue(retried["ok"], retried)
+        self.assertIn("status:done", self.store.label_names(number))
+
     def test_status_done_accepts_a_required_task_with_a_merged_reviewed_pull_request(self) -> None:
         sha = "f" * 40
         pull = 60

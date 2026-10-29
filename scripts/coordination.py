@@ -55,6 +55,16 @@ OWNER_LOGIN = "AStrasler"
 MAX_LEASE = timedelta(hours=24)
 STALL_AFTER = timedelta(days=3)
 STALL_LABEL = "stall:flagged"
+HANDOFF_EXPIRY = timedelta(days=14)
+HANDOFF_EXPIRY_RE = re.compile(r"<!-- egregore-handoff-expiry:(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) -->")
+CLOSING_NOTE = "Closed as not planned."
+HANDOFF_INTENTS = frozenset({"action", "feedback", "fyi"})
+WORKFLOW_MARKERS = (
+    "<!-- egregore-stall:",
+    "<!-- egregore-handoff-expiry:",
+    "<!-- egregore-lease:",
+    "<!-- egregore-lease-conflict:",
+)
 STALL_STAMP_RE = re.compile(r"<!-- egregore-stall:(?:[a-z0-9+-]+:)?(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) -->")
 PROJECT_SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 KNOWN_PROJECTS = frozenset({"coordination", "whoop-lens", "weather-intelligence"})
@@ -902,7 +912,8 @@ def stall_reason(labels: Sequence[str]) -> str | None:
 def latest_unstalled_activity(created_at: datetime, comments: Sequence[Mapping[str, object]]) -> datetime:
     latest = created_at
     for comment in comments:
-        if "<!-- egregore-stall:" in str(comment.get("body") or ""):
+        body = str(comment.get("body") or "")
+        if "<!-- egregore-stall:" in body or "<!-- egregore-handoff-expiry:" in body:
             continue
         stamp = try_parse_time(str(comment.get("created_at") or ""))
         if stamp is not None and stamp > latest:
@@ -956,6 +967,143 @@ def stall_plan(
         "A newer comment starts a new stretch.",
     ]
     return "\n".join(lines) + "\n", add_label
+
+
+def issue_fingerprint(issue: Mapping[str, object]) -> tuple[object, ...]:
+    """What a plan was made from. A later read that differs means the plan is stale.
+
+    State, labels, GitHub's own updated_at, and the comment count. A field the
+    payload leaves out is empty on both reads, so it never causes a mismatch.
+    """
+    count = issue.get("comments")
+    return (
+        str(issue.get("state") or ""),
+        str(issue.get("updated_at") or ""),
+        count if isinstance(count, int) and not isinstance(count, bool) else "",
+        tuple(sorted(label_names(issue.get("labels") or []))),
+    )
+
+
+def thread_fingerprint(issue: Mapping[str, object], comments: Sequence[Mapping[str, object]]) -> tuple[object, ...]:
+    """The issue fingerprint plus the comment ids in order."""
+    return (issue_fingerprint(issue), tuple(str(comment.get("id") or "") for comment in comments))
+
+
+def handoff_intent(body: str) -> str:
+    """action, feedback, fyi, or unknown. The form's Intent field, first line only."""
+    value = first_line(sections(body or "").get("Intent")).lower()
+    return value if value in HANDOFF_INTENTS else "unknown"
+
+
+def is_workflow_comment(body: str) -> bool:
+    """A comment this repository's own automation posted, not someone touching the issue."""
+    return HYGIENE_MARKER in body or any(marker in body for marker in WORKFLOW_MARKERS)
+
+
+def handoff_has_evidence(comments: Sequence[Mapping[str, object]]) -> bool:
+    """An evidence comment: a line that is exactly the Evidence heading, from anyone."""
+    for comment in comments:
+        for line in str(comment.get("body") or "").replace("\r\n", "\n").split("\n"):
+            if line.strip() == "## Evidence":
+                return True
+    return False
+
+
+@dataclass(frozen=True)
+class HandoffPlan:
+    """What the lifecycle rules say about one handoff. Never "done".
+
+    outcome is none, expire, or hold. expire posts one note (and closes as not
+    planned in close mode). hold changes nothing: a person decides.
+    """
+
+    outcome: str
+    reason: str
+    comment: str | None = None
+    close: bool = False
+
+
+def handoff_expiry_mode(value: str | None = None) -> str:
+    raw = value if value is not None else os.environ.get("EGREGORE_HANDOFF_EXPIRY", "flag")
+    return "close" if raw.strip().lower() == "close" else "flag"
+
+
+def handoff_plan(
+    title: str,
+    labels: Sequence[str],
+    body: str,
+    created_at: datetime | None,
+    comments: Sequence[Mapping[str, object]],
+    now: datetime,
+    *,
+    lease_active: bool,
+    mode: str = "flag",
+) -> HandoffPlan:
+    """Handoff lifecycle rules, from the egregore handoff skill, fitted to issues.
+
+    - Age alone never marks anything done. No outcome here sets status:done.
+    - A handoff with no activity for 14 days expires when nothing is owed back
+      (intent fyi), or when nobody ever picked it up (no comment but this
+      workflow's own notes) and its intent is not action. An action handoff is
+      work someone owes, so age alone never expires it, touched or not.
+    - A handoff someone did pick up (action or feedback, claimed or answered)
+      and that has no evidence comment stays open for a person, whatever its
+      age. With evidence a person still closes it.
+    - A live lease means someone is working on it.
+    """
+    names = set(labels)
+    if kind_from_title(title or "") != "handoff" and "type:handoff" not in names:
+        return HandoffPlan("none", "not a handoff")
+    if "status:done" in names:
+        return HandoffPlan("none", "already done")
+    if lease_active:
+        return HandoffPlan("none", "live lease")
+    if created_at is None:
+        return HandoffPlan("none", "no creation time")
+    activity = latest_handoff_activity(created_at, comments)
+    if now - activity < HANDOFF_EXPIRY:
+        return HandoffPlan("none", "within the 14-day window")
+    if handoff_has_evidence(comments):
+        return HandoffPlan("none", "has evidence; a person decides")
+    intent = handoff_intent(body)
+    untouched = all(is_workflow_comment(str(comment.get("body") or "")) for comment in comments)
+    if intent == "fyi" or (untouched and intent != "action"):
+        stamp = activity.strftime("%Y-%m-%dT%H:%M:%SZ")
+        notes = [
+            str(comment.get("body") or "")
+            for comment in comments
+            if any(match.group(1) == stamp for match in HANDOFF_EXPIRY_RE.finditer(str(comment.get("body") or "")))
+        ]
+        closing = mode == "close"
+        if notes and not closing:
+            return HandoffPlan("none", "expiry already noted")
+        if any(CLOSING_NOTE in note for note in notes):
+            # The closing note is posted but the close did not land. Retry the close alone.
+            return HandoffPlan("expire", "closing note posted; retrying the close", None, True)
+        lines = [
+            f"<!-- egregore-handoff-expiry:{stamp} -->",
+            "",
+            f"Handoff expired. Nothing has happened here since {stamp}, and no work is owed back.",
+            f"This does not mark the work done. {CLOSING_NOTE}" if closing else "This does not mark the work done. It stays open until a person closes it.",
+            "A newer comment starts a new 14-day window.",
+        ]
+        return HandoffPlan("expire", "idle for 14 days with nothing owed", "\n".join(lines) + "\n", closing)
+    if untouched:
+        return HandoffPlan("hold", "action handoff nobody picked up waits for a person")
+    return HandoffPlan("hold", "picked up without evidence stays open for a person")
+
+
+def latest_handoff_activity(created_at: datetime, comments: Sequence[Mapping[str, object]]) -> datetime:
+    """Latest comment time, skipping the notes this workflow posted about the issue."""
+    latest = created_at
+    for comment in comments:
+        body = str(comment.get("body") or "")
+        if "<!-- egregore-stall:" in body or "<!-- egregore-handoff-expiry:" in body:
+            continue
+        stamp = try_parse_time(str(comment.get("created_at") or ""))
+        if stamp is not None and stamp > latest:
+            latest = stamp
+    return latest
 
 
 def open_task_titles(repo: str) -> list[tuple[int, str]]:
@@ -1066,14 +1214,17 @@ def lease_watch_run_class(
     expired: int,
     conflicts_warned: int,
     stalls_flagged: int,
+    handoffs_expired: int = 0,
 ) -> str:
-    """One class per run. Conflict outranks expiry, which outranks a new stall flag."""
+    """One class per run. Conflict outranks expiry, which outranks a stall flag, then a handoff expiry."""
     if conflicts_warned:
         return "conflict"
     if expired:
         return "expired"
     if stalls_flagged:
         return "stall"
+    if handoffs_expired:
+        return "handoff"
     if active:
         return "active"
     return "no-op"
@@ -1086,6 +1237,9 @@ def lease_watch_summary_line(
     expired: int,
     conflicts_warned: int,
     stalls_flagged: int = 0,
+    handoffs_expired: int = 0,
+    handoffs_held: int = 0,
+    plans_stale: int = 0,
 ) -> str:
     """One audit line for every lease-watch run, including an all-active run."""
     run_class = lease_watch_run_class(
@@ -1093,6 +1247,7 @@ def lease_watch_summary_line(
         expired=expired,
         conflicts_warned=conflicts_warned,
         stalls_flagged=stalls_flagged,
+        handoffs_expired=handoffs_expired,
     )
     return (
         "lease-watch: "
@@ -1101,11 +1256,143 @@ def lease_watch_summary_line(
         f"active {active}, "
         f"expired {expired}, "
         f"conflicts warned {conflicts_warned}, "
-        f"stalls flagged {stalls_flagged}"
+        f"stalls flagged {stalls_flagged}, "
+        f"handoffs expired {handoffs_expired}, "
+        f"handoffs held {handoffs_held}, "
+        f"plans stale {plans_stale}"
     )
 
 
+@dataclass(frozen=True)
+class PlanStep:
+    """One write a scan decided on. kind is comment, labels, or close."""
+
+    kind: str
+    body: str = ""
+    add: tuple[str, ...] = ()
+    remove: tuple[str, ...] = ()
+    counts: str = ""
+    note: str = ""
+
+
+@dataclass(frozen=True)
+class IssuePlan:
+    """What a scan of one issue found and wants to write. The scan changes nothing."""
+
+    number: int
+    fingerprint: tuple[object, ...]
+    status: str
+    handoff: str
+    steps: tuple[PlanStep, ...]
+
+
+def scan_issue(
+    issue: Mapping[str, object],
+    comments: Sequence[Mapping[str, object]],
+    now: datetime,
+    *,
+    handoff_mode: str = "flag",
+) -> IssuePlan:
+    """Decide every write for one issue from one read of it. Nothing is written here."""
+    number = int(issue["number"])  # type: ignore[call-overload]
+    labels = label_names(issue.get("labels") or [])
+    state = assess_lease(comments, now)
+    posted_at = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    thread: list[Mapping[str, object]] = list(comments)
+    steps: list[PlanStep] = []
+    if conflict_comment_needed(thread, state):
+        conflict_body = lease_conflict_comment(state)
+        steps.append(PlanStep("comment", conflict_body, counts="conflict"))
+        thread.append({"body": conflict_body, "created_at": posted_at})
+    plan = lease_label_plan(labels, state)
+    working = list(labels)
+    if plan is not None:
+        marker = f"<!-- egregore-lease:{plan.marker} -->"
+        if not any(marker in str(comment.get("body") or "") for comment in thread):
+            backstop = lease_comment(state)
+            steps.append(PlanStep("comment", backstop))
+            thread.append({"body": backstop, "created_at": posted_at})
+        if plan.add or plan.remove:
+            steps.append(PlanStep("labels", add=tuple(plan.add), remove=tuple(plan.remove), note=f"issue {number}: {state.status}"))
+        else:
+            steps.append(PlanStep("note", note=f"issue {number}: {state.status}"))
+        for name in plan.remove:
+            if name in working:
+                working.remove(name)
+        for name in plan.add:
+            if name not in working:
+                working.append(name)
+    created = try_parse_time(str(issue.get("created_at") or ""))
+    stall_body, add_stall = stall_plan(working, created, thread, now, lease_active=state.status == "active")
+    if stall_body:
+        steps.append(PlanStep("comment", stall_body, counts="stall"))
+    if add_stall:
+        steps.append(PlanStep("labels", add=(STALL_LABEL,)))
+    handoff = handoff_plan(
+        str(issue.get("title") or ""),
+        working,
+        str(issue.get("body") or ""),
+        created,
+        thread,
+        now,
+        lease_active=state.status == "active",
+        mode=handoff_mode,
+    )
+    if handoff.outcome == "expire":
+        if handoff.comment:
+            steps.append(PlanStep("comment", handoff.comment, counts="handoff_expired"))
+        if handoff.close:
+            steps.append(PlanStep("close", counts="" if handoff.comment else "handoff_expired"))
+    return IssuePlan(number, thread_fingerprint(issue, comments), state.status, handoff.outcome, tuple(steps))
+
+
+def plan_is_stale(plan: IssuePlan, issue: Mapping[str, object], comments: Sequence[Mapping[str, object]]) -> bool:
+    """True when the issue changed after the scan. A stale plan is dropped, never applied."""
+    return thread_fingerprint(issue, comments) != plan.fingerprint
+
+
+def read_thread(repo: str, number: int) -> list[Mapping[str, object]]:
+    comments = gh_json(
+        ["--paginate", "--method", "GET", f"repos/{repo}/issues/{number}/comments", "-f", "per_page=100"]
+    )
+    if not isinstance(comments, list):
+        raise GhError("unexpected comments payload")
+    return comments
+
+
+def apply_plan(repo: str, plan: IssuePlan, counts: dict[str, int]) -> None:
+    number = plan.number
+    for step in plan.steps:
+        if step.kind == "comment":
+            gh_json(
+                ["--method", "POST", f"repos/{repo}/issues/{number}/comments", "--input", "-"],
+                {"body": step.body},
+            )
+            if step.counts:
+                counts[step.counts] = counts.get(step.counts, 0) + 1
+        elif step.kind == "labels":
+            for warning in apply_label_changes(repo, number, step.add, step.remove):
+                print(f"issue {number}: {warning}", file=sys.stderr)
+            if step.note:
+                print(step.note, file=sys.stderr)
+        elif step.kind == "close":
+            gh_json(
+                ["--method", "PATCH", f"repos/{repo}/issues/{number}", "--input", "-"],
+                {"state": "closed", "state_reason": "not_planned"},
+            )
+            if step.counts:
+                counts[step.counts] = counts.get(step.counts, 0) + 1
+        elif step.kind == "note":
+            print(step.note, file=sys.stderr)
+
+
 def cmd_check_leases(apply: bool, now_value: str | None) -> int:
+    """Scan every open issue, then apply. Each plan is checked against a fresh read first.
+
+    The scan decides and writes nothing. The apply pass re-reads an issue that
+    has writes planned. If it changed since the scan, the plan is dropped and
+    the next run plans again.
+    """
     if not apply:
         print("check-leases only runs with --apply", file=sys.stderr)
         return 2
@@ -1116,94 +1403,59 @@ def cmd_check_leases(apply: bool, now_value: str | None) -> int:
     )
     if not isinstance(issues, list):
         raise SystemExit("unexpected issues payload")
+    handoff_mode = handoff_expiry_mode()
     failed = False
     scanned = 0
     active = 0
     expired = 0
-    conflicts_warned = 0
-    stalls_flagged = 0
+    handoffs_held = 0
+    plans_stale = 0
+    plans: list[IssuePlan] = []
     for issue in issues:
         if not isinstance(issue, dict) or is_pull_request(issue):
             continue
         number = issue.get("number")
         scanned += 1
         try:
-            labels = label_names(issue.get("labels") or [])
-            comments = gh_json(
-                [
-                    "--paginate",
-                    "--method",
-                    "GET",
-                    f"repos/{repo}/issues/{number}/comments",
-                    "-f",
-                    "per_page=100",
-                ]
-            )
-            if not isinstance(comments, list):
-                raise GhError("unexpected comments payload")
-            state = assess_lease(comments, now)
-            if state.status == "active":
-                active += 1
-            elif state.status == "expired":
-                expired += 1
-            posted_at = now.strftime("%Y-%m-%dT%H:%M:%SZ")
-            if conflict_comment_needed(comments, state):
-                conflict_body = lease_conflict_comment(state)
-                gh_json(
-                    ["--method", "POST", f"repos/{repo}/issues/{number}/comments", "--input", "-"],
-                    {"body": conflict_body},
-                )
-                comments.append({"body": conflict_body, "created_at": posted_at})
-                conflicts_warned += 1
-            plan = lease_label_plan(labels, state)
-            working = list(labels)
-            if plan is not None:
-                marker = f"<!-- egregore-lease:{plan.marker} -->"
-                if not any(marker in str(comment.get("body") or "") for comment in comments):
-                    backstop = lease_comment(state)
-                    gh_json(
-                        ["--method", "POST", f"repos/{repo}/issues/{number}/comments", "--input", "-"],
-                        {"body": backstop},
-                    )
-                    comments.append({"body": backstop, "created_at": posted_at})
-                if plan.add or plan.remove:
-                    warnings = apply_label_changes(repo, int(number), plan.add, plan.remove)
-                    for warning in warnings:
-                        print(f"issue {number}: {warning}", file=sys.stderr)
-                for name in plan.remove:
-                    if name in working:
-                        working.remove(name)
-                for name in plan.add:
-                    if name not in working:
-                        working.append(name)
-                print(f"issue {number}: {state.status}", file=sys.stderr)
-            stall_body, add_stall = stall_plan(
-                working,
-                try_parse_time(str(issue.get("created_at") or "")),
-                comments,
-                now,
-                lease_active=state.status == "active",
-            )
-            if stall_body:
-                gh_json(
-                    ["--method", "POST", f"repos/{repo}/issues/{number}/comments", "--input", "-"],
-                    {"body": stall_body},
-                )
-                stalls_flagged += 1
-            if add_stall:
-                for warning in apply_label_changes(repo, int(number), [STALL_LABEL], []):
-                    print(f"issue {number}: {warning}", file=sys.stderr)
-        except (GhError, ValueError) as err:
+            plan = scan_issue(issue, read_thread(repo, int(number)), now, handoff_mode=handoff_mode)  # type: ignore[arg-type]
+        except (GhError, ValueError, TypeError) as err:
             failed = True
             message = err.message if isinstance(err, GhError) else "invalid lease data"
             print(f"issue {number}: {message}", file=sys.stderr)
+            continue
+        if plan.status == "active":
+            active += 1
+        elif plan.status == "expired":
+            expired += 1
+        if plan.handoff == "hold":
+            handoffs_held += 1
+        if plan.steps:
+            plans.append(plan)
+    counts: dict[str, int] = {}
+    for plan in plans:
+        try:
+            current = gh_json(["--method", "GET", f"repos/{repo}/issues/{plan.number}"])
+            if not isinstance(current, dict):
+                raise GhError("unexpected issue payload")
+            if plan_is_stale(plan, current, read_thread(repo, plan.number)):
+                plans_stale += 1
+                print(f"issue {plan.number}: changed since the scan, plan dropped", file=sys.stderr)
+                continue
+            apply_plan(repo, plan, counts)
+        except (GhError, ValueError) as err:
+            failed = True
+            message = err.message if isinstance(err, GhError) else "invalid lease data"
+            print(f"issue {plan.number}: {message}", file=sys.stderr)
     print(
         lease_watch_summary_line(
             scanned=scanned,
             active=active,
             expired=expired,
-            conflicts_warned=conflicts_warned,
-            stalls_flagged=stalls_flagged,
+            conflicts_warned=counts.get("conflict", 0),
+            stalls_flagged=counts.get("stall", 0),
+            handoffs_expired=counts.get("handoff_expired", 0),
+            handoffs_held=handoffs_held,
+            plans_stale=plans_stale,
         ),
         file=sys.stderr,
     )

@@ -55,6 +55,8 @@ The write tools are recorded as stories. Each story is a small dataset and an or
 python3 worker/test/parity/record.py
 ```
 
+A step can also say that someone else edited the issue while the done gate was reading (`drift`). `release_task` with `status: done` decides the gate from one read of the issue and its thread. Just before it writes, it reads the issue again and compares its state, labels, `updated_at` and comment count with the first read. If they differ it answers `stale_plan` and posts nothing. This costs no extra GitHub call, because the re-read was already there. The Python server and the Worker both do it, and one story records the refusal and then the successful retry.
+
 One known difference: JavaScript puts integer-like object keys (a section headed `### 2024`) first. Those cases are compared as parsed JSON, not as text.
 
 ## Local use

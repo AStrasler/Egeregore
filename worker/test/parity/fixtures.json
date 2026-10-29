@@ -10993,6 +10993,25 @@
             "created_at": "2026-10-20T09:00:00Z"
           },
           {
+            "number": 65,
+            "title": "[Task]: Changed during the gate",
+            "body": "### Project\n\ncoordination\n\n### Role\n\ncursor\n\n### Priority\n\nnormal\n\n### Outcome\n\nResearch only.\n\n### Context\n\nBecause.\n\n### Out of scope\n\nEverything else.\n\n### Approval needed\n\nNo\n\n### Data boundary\n\n- [x] Coordination only. No project data, health data, credentials, or another person's personal information.\n\n",
+            "state": "open",
+            "labels": [
+              {
+                "name": "type:task"
+              },
+              {
+                "name": "status:in-progress"
+              },
+              {
+                "name": "agent:cursor"
+              }
+            ],
+            "html_url": "https://github.com/AStrasler/Egeregore/issues/65",
+            "created_at": "2026-10-20T09:00:00Z"
+          },
+          {
             "number": 70,
             "title": "[Evidence]: for sixty-one",
             "body": "### Project\n\ncoordination\n\n### Related issue\n\n#61\n",
@@ -11025,6 +11044,19 @@
             "state": "open",
             "labels": [],
             "html_url": "https://github.com/AStrasler/Egeregore/issues/72",
+            "created_at": "2026-10-20T09:00:00Z"
+          },
+          {
+            "number": 73,
+            "title": "[Evidence]: for sixty-five",
+            "body": "### Related issue\n\n#65\n",
+            "state": "open",
+            "labels": [
+              {
+                "name": "type:evidence"
+              }
+            ],
+            "html_url": "https://github.com/AStrasler/Egeregore/issues/73",
             "created_at": "2026-10-20T09:00:00Z"
           },
           {
@@ -11386,9 +11418,21 @@
               }
             }
           ],
+          "65": [
+            {
+              "id": 1,
+              "created_at": "2026-10-27T17:00:00Z",
+              "updated_at": "2026-10-27T17:00:00Z",
+              "body": "Agent: Cursor\n\n## Claim\nClaim-Agent: cursor\nClaimed-At: 2026-10-27T17:00:00Z\nLease-Expires: 2026-10-27T23:00:00Z\nTask: work\nData-Boundary: coordination-only\n",
+              "user": {
+                "login": "egregore[bot]"
+              }
+            }
+          ],
           "70": [],
           "71": [],
           "72": [],
+          "73": [],
           "50": [
             {
               "id": 5001,
@@ -12341,6 +12385,137 @@
           ]
         },
         {
+          "tool": "release_task",
+          "args": {
+            "issue_number": 65,
+            "status": "done",
+            "reason": "all finished"
+          },
+          "agent": "cursor",
+          "drift": {
+            "op": "list_issues",
+            "number": 65,
+            "set": {
+              "updated_at": "2026-10-29T12:30:00Z",
+              "comments": 3
+            }
+          },
+          "expected": {
+            "ok": false,
+            "result": null,
+            "error": {
+              "code": "stale_plan",
+              "message": "The issue changed while the done gate was being checked. status:done was not set and nothing was posted. Read the issue again, then retry.",
+              "details": {}
+            }
+          },
+          "text": "{\n  \"ok\": false,\n  \"result\": null,\n  \"error\": {\n    \"code\": \"stale_plan\",\n    \"message\": \"The issue changed while the done gate was being checked. status:done was not set and nothing was posted. Read the issue again, then retry.\",\n    \"details\": {}\n  }\n}",
+          "text_exact": true,
+          "calls": [
+            {
+              "op": "get_issue",
+              "number": 65
+            },
+            {
+              "op": "list_comments",
+              "number": 65
+            },
+            {
+              "op": "get_issue",
+              "number": 65
+            },
+            {
+              "op": "list_issues",
+              "state": "all"
+            },
+            {
+              "op": "get_issue",
+              "number": 65
+            }
+          ]
+        },
+        {
+          "tool": "release_task",
+          "args": {
+            "issue_number": 65,
+            "status": "done",
+            "reason": "all finished"
+          },
+          "agent": "cursor",
+          "expected": {
+            "ok": true,
+            "result": {
+              "issue_number": 65,
+              "comment_id": "900004",
+              "status": "status:done",
+              "lease": {
+                "status": "released",
+                "agent": null,
+                "expires": null,
+                "lease_id": null,
+                "marker": "released:900004",
+                "conflicts": []
+              },
+              "identity": {
+                "agent": "cursor",
+                "auth": "github_app",
+                "github_login_is_separate": true,
+                "note": "Comments are attributed to the GitHub App bot, for example egregore[bot], not to @AStrasler. The Agent line is the role, not a login, and it is not Aaron's approval."
+              }
+            },
+            "error": null
+          },
+          "text": "{\n  \"ok\": true,\n  \"result\": {\n    \"issue_number\": 65,\n    \"comment_id\": \"900004\",\n    \"status\": \"status:done\",\n    \"lease\": {\n      \"status\": \"released\",\n      \"agent\": null,\n      \"expires\": null,\n      \"lease_id\": null,\n      \"marker\": \"released:900004\",\n      \"conflicts\": []\n    },\n    \"identity\": {\n      \"agent\": \"cursor\",\n      \"auth\": \"github_app\",\n      \"github_login_is_separate\": true,\n      \"note\": \"Comments are attributed to the GitHub App bot, for example egregore[bot], not to @AStrasler. The Agent line is the role, not a login, and it is not Aaron's approval.\"\n    }\n  },\n  \"error\": null\n}",
+          "text_exact": true,
+          "calls": [
+            {
+              "op": "get_issue",
+              "number": 65
+            },
+            {
+              "op": "list_comments",
+              "number": 65
+            },
+            {
+              "op": "get_issue",
+              "number": 65
+            },
+            {
+              "op": "list_issues",
+              "state": "all"
+            },
+            {
+              "op": "get_issue",
+              "number": 65
+            },
+            {
+              "op": "create_comment",
+              "number": 65,
+              "body": "Agent: Cursor\n\n## Lease release\nClaim-Agent: cursor\nLease-Release: cursor\nReason: all finished\nData-Boundary: coordination-only\n"
+            },
+            {
+              "op": "get_issue",
+              "number": 65
+            },
+            {
+              "op": "remove_label",
+              "number": 65,
+              "name": "status:in-progress"
+            },
+            {
+              "op": "add_labels",
+              "number": 65,
+              "labels": [
+                "status:done"
+              ]
+            },
+            {
+              "op": "list_comments",
+              "number": 65
+            }
+          ]
+        },
+        {
           "tool": "get_tasks",
           "args": {
             "kind": "all",
@@ -12743,6 +12918,32 @@
                   }
                 },
                 {
+                  "number": 65,
+                  "title": "[Task]: Changed during the gate",
+                  "state": "open",
+                  "html_url": "https://github.com/AStrasler/Egeregore/issues/65",
+                  "kind": "task",
+                  "labels": [
+                    "type:task",
+                    "agent:cursor",
+                    "status:done"
+                  ],
+                  "role": "cursor",
+                  "lease": {
+                    "status": "released",
+                    "agent": null,
+                    "expires": null,
+                    "lease_id": null,
+                    "marker": "released:900004",
+                    "conflicts": []
+                  },
+                  "stall": {
+                    "reason": null,
+                    "flagged": false,
+                    "lease_blocks_flag": false
+                  }
+                },
+                {
                   "number": 70,
                   "title": "[Evidence]: for sixty-one",
                   "state": "open",
@@ -12811,13 +13012,37 @@
                     "flagged": false,
                     "lease_blocks_flag": false
                   }
+                },
+                {
+                  "number": 73,
+                  "title": "[Evidence]: for sixty-five",
+                  "state": "open",
+                  "html_url": "https://github.com/AStrasler/Egeregore/issues/73",
+                  "kind": "evidence",
+                  "labels": [
+                    "type:evidence"
+                  ],
+                  "role": null,
+                  "lease": {
+                    "status": "missing",
+                    "agent": null,
+                    "expires": null,
+                    "lease_id": null,
+                    "marker": "missing:none",
+                    "conflicts": []
+                  },
+                  "stall": {
+                    "reason": null,
+                    "flagged": false,
+                    "lease_blocks_flag": false
+                  }
                 }
               ],
-              "count": 18
+              "count": 20
             },
             "error": null
           },
-          "text": "{\n  \"ok\": true,\n  \"result\": {\n    \"tasks\": [\n      {\n        \"number\": 40,\n        \"title\": \"[Task]: Merged and reviewed\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/40\",\n        \"kind\": \"task\",\n        \"labels\": [\n          \"type:task\",\n          \"agent:cursor\",\n          \"status:done\"\n        ],\n        \"role\": \"cursor\",\n        \"lease\": {\n          \"status\": \"released\",\n          \"agent\": null,\n          \"expires\": null,\n          \"lease_id\": null,\n          \"marker\": \"released:900001\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": false\n        }\n      },\n      {\n        \"number\": 41,\n        \"title\": \"[Task]: Not merged\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/41\",\n        \"kind\": \"task\",\n        \"labels\": [\n          \"type:task\",\n          \"status:in-progress\",\n          \"agent:cursor\"\n        ],\n        \"role\": \"cursor\",\n        \"lease\": {\n          \"status\": \"active\",\n          \"agent\": \"cursor\",\n          \"expires\": \"2026-10-27T23:00:00Z\",\n          \"lease_id\": \"1\",\n          \"marker\": \"active:1:2026-10-27T23:00:00Z\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": true\n        }\n      },\n      {\n        \"number\": 42,\n        \"title\": \"[Task]: Unresolved findings\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/42\",\n        \"kind\": \"task\",\n        \"labels\": [\n          \"type:task\",\n          \"status:in-progress\",\n          \"agent:cursor\"\n        ],\n        \"role\": \"cursor\",\n        \"lease\": {\n          \"status\": \"active\",\n          \"agent\": \"cursor\",\n          \"expires\": \"2026-10-27T23:00:00Z\",\n          \"lease_id\": \"1\",\n          \"marker\": \"active:1:2026-10-27T23:00:00Z\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": true\n        }\n      },\n      {\n        \"number\": 43,\n        \"title\": \"[Task]: No evidence\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/43\",\n        \"kind\": \"task\",\n        \"labels\": [\n          \"type:task\",\n          \"status:in-progress\",\n          \"agent:cursor\"\n        ],\n        \"role\": \"cursor\",\n        \"lease\": {\n          \"status\": \"active\",\n          \"agent\": \"cursor\",\n          \"expires\": \"2026-10-27T23:00:00Z\",\n          \"lease_id\": \"1\",\n          \"marker\": \"active:1:2026-10-27T23:00:00Z\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": true\n        }\n      },\n      {\n        \"number\": 44,\n        \"title\": \"[Task]: Docs only\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/44\",\n        \"kind\": \"task\",\n        \"labels\": [\n          \"type:task\",\n          \"agent:cursor\",\n          \"status:done\"\n        ],\n        \"role\": \"cursor\",\n        \"lease\": {\n          \"status\": \"released\",\n          \"agent\": null,\n          \"expires\": null,\n          \"lease_id\": null,\n          \"marker\": \"released:900002\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": false\n        }\n      },\n      {\n        \"number\": 45,\n        \"title\": \"[Task]: Outside repo\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/45\",\n        \"kind\": \"task\",\n        \"labels\": [\n          \"type:task\",\n          \"status:in-progress\",\n          \"agent:cursor\"\n        ],\n        \"role\": \"cursor\",\n        \"lease\": {\n          \"status\": \"active\",\n          \"agent\": \"cursor\",\n          \"expires\": \"2026-10-27T23:00:00Z\",\n          \"lease_id\": \"1\",\n          \"marker\": \"active:1:2026-10-27T23:00:00Z\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": true\n        }\n      },\n      {\n        \"number\": 46,\n        \"title\": \"[Task]: Unknown requirement\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/46\",\n        \"kind\": \"task\",\n        \"labels\": [\n          \"type:task\",\n          \"status:in-progress\",\n          \"agent:cursor\"\n        ],\n        \"role\": \"cursor\",\n        \"lease\": {\n          \"status\": \"active\",\n          \"agent\": \"cursor\",\n          \"expires\": \"2026-10-27T23:00:00Z\",\n          \"lease_id\": \"1\",\n          \"marker\": \"active:1:2026-10-27T23:00:00Z\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": true\n        }\n      },\n      {\n        \"number\": 47,\n        \"title\": \"[Task]: Wants a pull request\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/47\",\n        \"kind\": \"task\",\n        \"labels\": [\n          \"type:task\",\n          \"status:in-progress\",\n          \"agent:cursor\"\n        ],\n        \"role\": \"cursor\",\n        \"lease\": {\n          \"status\": \"active\",\n          \"agent\": \"cursor\",\n          \"expires\": \"2026-10-27T23:00:00Z\",\n          \"lease_id\": \"1\",\n          \"marker\": \"active:1:2026-10-27T23:00:00Z\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": true\n        }\n      },\n      {\n        \"number\": 48,\n        \"title\": \"[Task]: Missing reaction\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/48\",\n        \"kind\": \"task\",\n        \"labels\": [\n          \"type:task\",\n          \"status:in-progress\",\n          \"agent:cursor\"\n        ],\n        \"role\": \"cursor\",\n        \"lease\": {\n          \"status\": \"active\",\n          \"agent\": \"cursor\",\n          \"expires\": \"2026-10-27T23:00:00Z\",\n          \"lease_id\": \"1\",\n          \"marker\": \"active:1:2026-10-27T23:00:00Z\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": true\n        }\n      },\n      {\n        \"number\": 49,\n        \"title\": \"[Task]: Copied payload\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/49\",\n        \"kind\": \"task\",\n        \"labels\": [\n          \"type:task\",\n          \"status:in-progress\",\n          \"agent:cursor\"\n        ],\n        \"role\": \"cursor\",\n        \"lease\": {\n          \"status\": \"active\",\n          \"agent\": \"cursor\",\n          \"expires\": \"2026-10-27T23:00:00Z\",\n          \"lease_id\": \"1\",\n          \"marker\": \"active:1:2026-10-27T23:00:00Z\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": true\n        }\n      },\n      {\n        \"number\": 60,\n        \"title\": \"[Task]: Two pulls, second unreviewed\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/60\",\n        \"kind\": \"task\",\n        \"labels\": [\n          \"type:task\",\n          \"status:in-progress\",\n          \"agent:cursor\"\n        ],\n        \"role\": \"cursor\",\n        \"lease\": {\n          \"status\": \"active\",\n          \"agent\": \"cursor\",\n          \"expires\": \"2026-10-27T23:00:00Z\",\n          \"lease_id\": \"1\",\n          \"marker\": \"active:1:2026-10-27T23:00:00Z\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": true\n        }\n      },\n      {\n        \"number\": 61,\n        \"title\": \"[Task]: Evidence by issue\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/61\",\n        \"kind\": \"task\",\n        \"labels\": [\n          \"type:task\",\n          \"agent:cursor\",\n          \"status:done\"\n        ],\n        \"role\": \"cursor\",\n        \"lease\": {\n          \"status\": \"released\",\n          \"agent\": null,\n          \"expires\": null,\n          \"lease_id\": null,\n          \"marker\": \"released:900003\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": false\n        }\n      },\n      {\n        \"number\": 62,\n        \"title\": \"[Task]: Needs owner\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/62\",\n        \"kind\": \"task\",\n        \"labels\": [\n          \"type:task\",\n          \"status:needs-owner\",\n          \"agent:cursor\"\n        ],\n        \"role\": \"cursor\",\n        \"lease\": {\n          \"status\": \"active\",\n          \"agent\": \"cursor\",\n          \"expires\": \"2026-10-27T23:00:00Z\",\n          \"lease_id\": \"1\",\n          \"marker\": \"active:1:2026-10-27T23:00:00Z\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": \"needs-owner\",\n          \"flagged\": false,\n          \"lease_blocks_flag\": true\n        }\n      },\n      {\n        \"number\": 63,\n        \"title\": \"[Task]: Stale head\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/63\",\n        \"kind\": \"task\",\n        \"labels\": [\n          \"type:task\",\n          \"status:in-progress\",\n          \"agent:cursor\"\n        ],\n        \"role\": \"cursor\",\n        \"lease\": {\n          \"status\": \"active\",\n          \"agent\": \"cursor\",\n          \"expires\": \"2026-10-27T23:00:00Z\",\n          \"lease_id\": \"1\",\n          \"marker\": \"active:1:2026-10-27T23:00:00Z\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": true\n        }\n      },\n      {\n        \"number\": 64,\n        \"title\": \"[Task]: Mention is not evidence\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/64\",\n        \"kind\": \"task\",\n        \"labels\": [\n          \"type:task\",\n          \"status:in-progress\",\n          \"agent:cursor\"\n        ],\n        \"role\": \"cursor\",\n        \"lease\": {\n          \"status\": \"active\",\n          \"agent\": \"cursor\",\n          \"expires\": \"2026-10-27T23:00:00Z\",\n          \"lease_id\": \"1\",\n          \"marker\": \"active:1:2026-10-27T23:00:00Z\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": true\n        }\n      },\n      {\n        \"number\": 70,\n        \"title\": \"[Evidence]: for sixty-one\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/70\",\n        \"kind\": \"evidence\",\n        \"labels\": [\n          \"type:evidence\"\n        ],\n        \"role\": null,\n        \"lease\": {\n          \"status\": \"missing\",\n          \"agent\": null,\n          \"expires\": null,\n          \"lease_id\": null,\n          \"marker\": \"missing:none\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": false\n        }\n      },\n      {\n        \"number\": 71,\n        \"title\": \"[Evidence]: for six hundred forty\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/71\",\n        \"kind\": \"evidence\",\n        \"labels\": [\n          \"type:evidence\"\n        ],\n        \"role\": null,\n        \"lease\": {\n          \"status\": \"missing\",\n          \"agent\": null,\n          \"expires\": null,\n          \"lease_id\": null,\n          \"marker\": \"missing:none\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": false\n        }\n      },\n      {\n        \"number\": 72,\n        \"title\": \"A plain issue naming 64\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/72\",\n        \"kind\": null,\n        \"labels\": [],\n        \"role\": null,\n        \"lease\": {\n          \"status\": \"missing\",\n          \"agent\": null,\n          \"expires\": null,\n          \"lease_id\": null,\n          \"marker\": \"missing:none\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": false\n        }\n      }\n    ],\n    \"count\": 18\n  },\n  \"error\": null\n}",
+          "text": "{\n  \"ok\": true,\n  \"result\": {\n    \"tasks\": [\n      {\n        \"number\": 40,\n        \"title\": \"[Task]: Merged and reviewed\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/40\",\n        \"kind\": \"task\",\n        \"labels\": [\n          \"type:task\",\n          \"agent:cursor\",\n          \"status:done\"\n        ],\n        \"role\": \"cursor\",\n        \"lease\": {\n          \"status\": \"released\",\n          \"agent\": null,\n          \"expires\": null,\n          \"lease_id\": null,\n          \"marker\": \"released:900001\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": false\n        }\n      },\n      {\n        \"number\": 41,\n        \"title\": \"[Task]: Not merged\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/41\",\n        \"kind\": \"task\",\n        \"labels\": [\n          \"type:task\",\n          \"status:in-progress\",\n          \"agent:cursor\"\n        ],\n        \"role\": \"cursor\",\n        \"lease\": {\n          \"status\": \"active\",\n          \"agent\": \"cursor\",\n          \"expires\": \"2026-10-27T23:00:00Z\",\n          \"lease_id\": \"1\",\n          \"marker\": \"active:1:2026-10-27T23:00:00Z\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": true\n        }\n      },\n      {\n        \"number\": 42,\n        \"title\": \"[Task]: Unresolved findings\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/42\",\n        \"kind\": \"task\",\n        \"labels\": [\n          \"type:task\",\n          \"status:in-progress\",\n          \"agent:cursor\"\n        ],\n        \"role\": \"cursor\",\n        \"lease\": {\n          \"status\": \"active\",\n          \"agent\": \"cursor\",\n          \"expires\": \"2026-10-27T23:00:00Z\",\n          \"lease_id\": \"1\",\n          \"marker\": \"active:1:2026-10-27T23:00:00Z\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": true\n        }\n      },\n      {\n        \"number\": 43,\n        \"title\": \"[Task]: No evidence\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/43\",\n        \"kind\": \"task\",\n        \"labels\": [\n          \"type:task\",\n          \"status:in-progress\",\n          \"agent:cursor\"\n        ],\n        \"role\": \"cursor\",\n        \"lease\": {\n          \"status\": \"active\",\n          \"agent\": \"cursor\",\n          \"expires\": \"2026-10-27T23:00:00Z\",\n          \"lease_id\": \"1\",\n          \"marker\": \"active:1:2026-10-27T23:00:00Z\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": true\n        }\n      },\n      {\n        \"number\": 44,\n        \"title\": \"[Task]: Docs only\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/44\",\n        \"kind\": \"task\",\n        \"labels\": [\n          \"type:task\",\n          \"agent:cursor\",\n          \"status:done\"\n        ],\n        \"role\": \"cursor\",\n        \"lease\": {\n          \"status\": \"released\",\n          \"agent\": null,\n          \"expires\": null,\n          \"lease_id\": null,\n          \"marker\": \"released:900002\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": false\n        }\n      },\n      {\n        \"number\": 45,\n        \"title\": \"[Task]: Outside repo\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/45\",\n        \"kind\": \"task\",\n        \"labels\": [\n          \"type:task\",\n          \"status:in-progress\",\n          \"agent:cursor\"\n        ],\n        \"role\": \"cursor\",\n        \"lease\": {\n          \"status\": \"active\",\n          \"agent\": \"cursor\",\n          \"expires\": \"2026-10-27T23:00:00Z\",\n          \"lease_id\": \"1\",\n          \"marker\": \"active:1:2026-10-27T23:00:00Z\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": true\n        }\n      },\n      {\n        \"number\": 46,\n        \"title\": \"[Task]: Unknown requirement\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/46\",\n        \"kind\": \"task\",\n        \"labels\": [\n          \"type:task\",\n          \"status:in-progress\",\n          \"agent:cursor\"\n        ],\n        \"role\": \"cursor\",\n        \"lease\": {\n          \"status\": \"active\",\n          \"agent\": \"cursor\",\n          \"expires\": \"2026-10-27T23:00:00Z\",\n          \"lease_id\": \"1\",\n          \"marker\": \"active:1:2026-10-27T23:00:00Z\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": true\n        }\n      },\n      {\n        \"number\": 47,\n        \"title\": \"[Task]: Wants a pull request\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/47\",\n        \"kind\": \"task\",\n        \"labels\": [\n          \"type:task\",\n          \"status:in-progress\",\n          \"agent:cursor\"\n        ],\n        \"role\": \"cursor\",\n        \"lease\": {\n          \"status\": \"active\",\n          \"agent\": \"cursor\",\n          \"expires\": \"2026-10-27T23:00:00Z\",\n          \"lease_id\": \"1\",\n          \"marker\": \"active:1:2026-10-27T23:00:00Z\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": true\n        }\n      },\n      {\n        \"number\": 48,\n        \"title\": \"[Task]: Missing reaction\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/48\",\n        \"kind\": \"task\",\n        \"labels\": [\n          \"type:task\",\n          \"status:in-progress\",\n          \"agent:cursor\"\n        ],\n        \"role\": \"cursor\",\n        \"lease\": {\n          \"status\": \"active\",\n          \"agent\": \"cursor\",\n          \"expires\": \"2026-10-27T23:00:00Z\",\n          \"lease_id\": \"1\",\n          \"marker\": \"active:1:2026-10-27T23:00:00Z\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": true\n        }\n      },\n      {\n        \"number\": 49,\n        \"title\": \"[Task]: Copied payload\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/49\",\n        \"kind\": \"task\",\n        \"labels\": [\n          \"type:task\",\n          \"status:in-progress\",\n          \"agent:cursor\"\n        ],\n        \"role\": \"cursor\",\n        \"lease\": {\n          \"status\": \"active\",\n          \"agent\": \"cursor\",\n          \"expires\": \"2026-10-27T23:00:00Z\",\n          \"lease_id\": \"1\",\n          \"marker\": \"active:1:2026-10-27T23:00:00Z\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": true\n        }\n      },\n      {\n        \"number\": 60,\n        \"title\": \"[Task]: Two pulls, second unreviewed\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/60\",\n        \"kind\": \"task\",\n        \"labels\": [\n          \"type:task\",\n          \"status:in-progress\",\n          \"agent:cursor\"\n        ],\n        \"role\": \"cursor\",\n        \"lease\": {\n          \"status\": \"active\",\n          \"agent\": \"cursor\",\n          \"expires\": \"2026-10-27T23:00:00Z\",\n          \"lease_id\": \"1\",\n          \"marker\": \"active:1:2026-10-27T23:00:00Z\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": true\n        }\n      },\n      {\n        \"number\": 61,\n        \"title\": \"[Task]: Evidence by issue\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/61\",\n        \"kind\": \"task\",\n        \"labels\": [\n          \"type:task\",\n          \"agent:cursor\",\n          \"status:done\"\n        ],\n        \"role\": \"cursor\",\n        \"lease\": {\n          \"status\": \"released\",\n          \"agent\": null,\n          \"expires\": null,\n          \"lease_id\": null,\n          \"marker\": \"released:900003\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": false\n        }\n      },\n      {\n        \"number\": 62,\n        \"title\": \"[Task]: Needs owner\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/62\",\n        \"kind\": \"task\",\n        \"labels\": [\n          \"type:task\",\n          \"status:needs-owner\",\n          \"agent:cursor\"\n        ],\n        \"role\": \"cursor\",\n        \"lease\": {\n          \"status\": \"active\",\n          \"agent\": \"cursor\",\n          \"expires\": \"2026-10-27T23:00:00Z\",\n          \"lease_id\": \"1\",\n          \"marker\": \"active:1:2026-10-27T23:00:00Z\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": \"needs-owner\",\n          \"flagged\": false,\n          \"lease_blocks_flag\": true\n        }\n      },\n      {\n        \"number\": 63,\n        \"title\": \"[Task]: Stale head\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/63\",\n        \"kind\": \"task\",\n        \"labels\": [\n          \"type:task\",\n          \"status:in-progress\",\n          \"agent:cursor\"\n        ],\n        \"role\": \"cursor\",\n        \"lease\": {\n          \"status\": \"active\",\n          \"agent\": \"cursor\",\n          \"expires\": \"2026-10-27T23:00:00Z\",\n          \"lease_id\": \"1\",\n          \"marker\": \"active:1:2026-10-27T23:00:00Z\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": true\n        }\n      },\n      {\n        \"number\": 64,\n        \"title\": \"[Task]: Mention is not evidence\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/64\",\n        \"kind\": \"task\",\n        \"labels\": [\n          \"type:task\",\n          \"status:in-progress\",\n          \"agent:cursor\"\n        ],\n        \"role\": \"cursor\",\n        \"lease\": {\n          \"status\": \"active\",\n          \"agent\": \"cursor\",\n          \"expires\": \"2026-10-27T23:00:00Z\",\n          \"lease_id\": \"1\",\n          \"marker\": \"active:1:2026-10-27T23:00:00Z\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": true\n        }\n      },\n      {\n        \"number\": 65,\n        \"title\": \"[Task]: Changed during the gate\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/65\",\n        \"kind\": \"task\",\n        \"labels\": [\n          \"type:task\",\n          \"agent:cursor\",\n          \"status:done\"\n        ],\n        \"role\": \"cursor\",\n        \"lease\": {\n          \"status\": \"released\",\n          \"agent\": null,\n          \"expires\": null,\n          \"lease_id\": null,\n          \"marker\": \"released:900004\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": false\n        }\n      },\n      {\n        \"number\": 70,\n        \"title\": \"[Evidence]: for sixty-one\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/70\",\n        \"kind\": \"evidence\",\n        \"labels\": [\n          \"type:evidence\"\n        ],\n        \"role\": null,\n        \"lease\": {\n          \"status\": \"missing\",\n          \"agent\": null,\n          \"expires\": null,\n          \"lease_id\": null,\n          \"marker\": \"missing:none\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": false\n        }\n      },\n      {\n        \"number\": 71,\n        \"title\": \"[Evidence]: for six hundred forty\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/71\",\n        \"kind\": \"evidence\",\n        \"labels\": [\n          \"type:evidence\"\n        ],\n        \"role\": null,\n        \"lease\": {\n          \"status\": \"missing\",\n          \"agent\": null,\n          \"expires\": null,\n          \"lease_id\": null,\n          \"marker\": \"missing:none\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": false\n        }\n      },\n      {\n        \"number\": 72,\n        \"title\": \"A plain issue naming 64\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/72\",\n        \"kind\": null,\n        \"labels\": [],\n        \"role\": null,\n        \"lease\": {\n          \"status\": \"missing\",\n          \"agent\": null,\n          \"expires\": null,\n          \"lease_id\": null,\n          \"marker\": \"missing:none\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": false\n        }\n      },\n      {\n        \"number\": 73,\n        \"title\": \"[Evidence]: for sixty-five\",\n        \"state\": \"open\",\n        \"html_url\": \"https://github.com/AStrasler/Egeregore/issues/73\",\n        \"kind\": \"evidence\",\n        \"labels\": [\n          \"type:evidence\"\n        ],\n        \"role\": null,\n        \"lease\": {\n          \"status\": \"missing\",\n          \"agent\": null,\n          \"expires\": null,\n          \"lease_id\": null,\n          \"marker\": \"missing:none\",\n          \"conflicts\": []\n        },\n        \"stall\": {\n          \"reason\": null,\n          \"flagged\": false,\n          \"lease_blocks_flag\": false\n        }\n      }\n    ],\n    \"count\": 20\n  },\n  \"error\": null\n}",
           "text_exact": true,
           "calls": [
             {
@@ -12886,6 +13111,10 @@
             },
             {
               "op": "list_comments",
+              "number": 65
+            },
+            {
+              "op": "list_comments",
               "number": 70
             },
             {
@@ -12895,6 +13124,10 @@
             {
               "op": "list_comments",
               "number": 72
+            },
+            {
+              "op": "list_comments",
+              "number": 73
             }
           ]
         }

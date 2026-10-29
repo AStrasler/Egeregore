@@ -28,6 +28,7 @@ interface Step {
   text_exact: boolean;
   calls: Array<Record<string, unknown>>;
   fault?: { op: string; status: number; text: string; times: number; skip: number };
+  drift?: { op: "list_issues"; number: number; set: Record<string, unknown> };
 }
 
 /** Where each GitHub operation the Python store can fail shows up on the wire. */
@@ -140,6 +141,7 @@ describe("parity with the Python MCP server", () => {
         } else {
           options.failWith = undefined;
         }
+        options.drift = item.drift ? structuredClone(item.drift) : undefined;
         const before = github.calls.length;
         const result = await client(worker, env, item.agent).tool(item.tool, expand(item.args));
         const made = github.calls.slice(before);

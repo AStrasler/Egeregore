@@ -109,6 +109,22 @@ export function labelNames(labels: unknown): string[] {
   return names;
 }
 
+/**
+ * What a plan was made from. A later read that differs means the plan is stale.
+ * State, labels, GitHub's own updated_at, and the comment count. A field the payload
+ * leaves out is empty on both reads, so it never causes a mismatch. Mirrors
+ * issue_fingerprint in scripts/coordination.py.
+ */
+export function issueFingerprint(issue: Json): string {
+  const count = issue.comments;
+  return JSON.stringify([
+    pyStr(issue.state ?? "") || "",
+    pyStr(issue.updated_at ?? "") || "",
+    typeof count === "number" && Number.isInteger(count) ? count : "",
+    labelNames(issue.labels || []).sort(),
+  ]);
+}
+
 export function isPullRequest(issue: Json): boolean {
   return "pull_request" in issue;
 }

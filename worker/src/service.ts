@@ -25,6 +25,7 @@ import {
   decisionVerdict,
   firstLine,
   isPullRequest,
+  issueFingerprint,
   kindFromTitle,
   labelNames,
   leaseConflictComment,
@@ -423,9 +424,18 @@ export class CoordinationService {
       }
       let fresh = await this.guardMutation(github, issueNumber);
       if (label === "status:done") {
+        // Scan, then apply: the gate is decided from this read of the issue and thread.
+        const planned = issueFingerprint(issue);
         const doneRefusal = await this.doneRefusal(github, fresh, comments);
         if (doneRefusal) return doneRefusal;
         fresh = await this.guardMutation(github, issueNumber);
+        if (issueFingerprint(fresh) !== planned) {
+          return err(
+            "stale_plan",
+            "The issue changed while the done gate was being checked. " +
+              "status:done was not set and nothing was posted. Read the issue again, then retry.",
+          );
+        }
       }
       // Comment, a re-read, the labels, then a fresh read of the thread.
       this.reserve(github, 1 + 1 + statusCalls(fresh) + (pages + 1), "release_task");

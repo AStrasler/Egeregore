@@ -580,14 +580,26 @@ class LeaseWatchSummaryTests(unittest.TestCase):
         self,
         issues: list[dict[str, object]],
         comments_by_number: dict[int, list[dict[str, object]]],
+        drift: set[int] | None = None,
     ) -> tuple[int, str, list[tuple[str, object]]]:
         posts: list[tuple[str, object]] = []
+        gets: list[int] = []
+        self.gets = gets
 
         def fake_gh(args: list[str], payload: dict[str, object] | None = None) -> object:
             path = next(arg for arg in args if arg.startswith("repos/"))
             method = args[args.index("--method") + 1]
             if method == "GET" and path.endswith("/issues"):
                 return issues
+            if method == "GET" and "/issues/" in path and not path.endswith("/comments"):
+                number = int(path.rsplit("/", 1)[1])
+                gets.append(number)
+                if drift is not None and number in drift:
+                    comments_by_number[number] = [*comments_by_number[number], comment("a late reply", NOW, 999)]
+                return next(item for item in issues if item["number"] == number)
+            if method == "PATCH":
+                posts.append((path, payload))
+                return {}
             if method == "GET" and path.endswith("/comments"):
                 number = int(path.split("/")[4])
                 return list(comments_by_number[number])
@@ -615,7 +627,7 @@ class LeaseWatchSummaryTests(unittest.TestCase):
         )
         self.assertEqual(
             line,
-            "lease-watch: run conflict, issues scanned 4, active 2, expired 1, conflicts warned 1, stalls flagged 0",
+            "lease-watch: run conflict, issues scanned 4, active 2, expired 1, conflicts warned 1, stalls flagged 0, handoffs expired 0, handoffs held 0, plans stale 0",
         )
         self.assertNotIn("\n", line)
         self.assertEqual(
@@ -648,7 +660,7 @@ class LeaseWatchSummaryTests(unittest.TestCase):
         self.assertEqual(posts, [])
         self.assertEqual(
             log,
-            "lease-watch: run active, issues scanned 1, active 1, expired 0, conflicts warned 0, stalls flagged 0\n",
+            "lease-watch: run active, issues scanned 1, active 1, expired 0, conflicts warned 0, stalls flagged 0, handoffs expired 0, handoffs held 0, plans stale 0\n",
         )
 
     def test_summary_counts_scans_active_expired_and_new_conflict_warnings(self) -> None:
@@ -690,7 +702,7 @@ class LeaseWatchSummaryTests(unittest.TestCase):
         self.assertNotIn("issue 16:", log)
         self.assertTrue(
             log.endswith(
-                "lease-watch: run conflict, issues scanned 5, active 3, expired 1, conflicts warned 1, stalls flagged 0\n"
+                "lease-watch: run conflict, issues scanned 5, active 3, expired 1, conflicts warned 1, stalls flagged 0, handoffs expired 0, handoffs held 0, plans stale 0\n"
             )
         )
 
@@ -709,7 +721,7 @@ class LeaseWatchSummaryTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(posts, [])
         self.assertIn("run active", log)
-        self.assertIn("stalls flagged 0", log)
+        self.assertIn("stalls flagged 0, handoffs expired 0, handoffs held 0, plans stale 0", log)
 
     def test_idle_needs_review_is_flagged_once(self) -> None:
         created = NOW - timedelta(days=4)
@@ -752,7 +764,7 @@ class LeaseWatchSummaryTests(unittest.TestCase):
         self.assertEqual(again, 0)
         self.assertEqual([payload for _path, payload in again_posts], [{"labels": ["stall:flagged"]}])
         self.assertIn("run no-op", again_log)
-        self.assertIn("stalls flagged 0", again_log)
+        self.assertIn("stalls flagged 0, handoffs expired 0, handoffs held 0, plans stale 0", again_log)
 
         quiet, quiet_log, quiet_posts = self.run_watch(
             [
@@ -788,7 +800,7 @@ class LeaseWatchSummaryTests(unittest.TestCase):
         ]
         self.assertEqual(sum("Lease backstop." in body for body in bodies), 1)
         self.assertEqual(sum("<!-- egregore-stall:" in body for body in bodies), 0)
-        self.assertIn("stalls flagged 0", log)
+        self.assertIn("stalls flagged 0, handoffs expired 0, handoffs held 0, plans stale 0", log)
         self.assertIn("run expired", log)
 
         backstop = next(body for body in bodies if "Lease backstop." in body)
@@ -1339,6 +1351,240 @@ class RepoPolicyTests(unittest.TestCase):
         self.assertIn("no Cloudflare, Vercel, or Supabase service", readme)
         self.assertIn("WHOOP-Lens", onboarding)
         self.assertIn("does not grant", onboarding)
+
+
+def handoff_issue(number: int, intent: str | None, age_days: int, labels: list[str] | None = None) -> dict[str, object]:
+    body = "### Project\n\ncoordination\n\n"
+    if intent is not None:
+        body += f"### Intent\n\n{intent}\n\n"
+    body += "### Next action\n\nDo it.\n"
+    return {
+        "number": number,
+        "title": "[Handoff]: pass it on",
+        "body": body,
+        "state": "open",
+        "created_at": iso(NOW - timedelta(days=age_days)),
+        "labels": [{"name": name} for name in (labels or ["type:handoff", "status:ready"])],
+    }
+
+
+class HandoffLifecycleTests(unittest.TestCase):
+    def plan(self, issue: dict[str, object], comments: list[dict[str, object]], **kw: object) -> coord.HandoffPlan:
+        return coord.handoff_plan(
+            str(issue["title"]),
+            coord.label_names(issue["labels"]),  # type: ignore[arg-type]
+            str(issue["body"]),
+            coord.try_parse_time(str(issue["created_at"])),
+            comments,
+            NOW,
+            lease_active=bool(kw.get("lease_active", False)),
+            mode=str(kw.get("mode", "flag")),
+        )
+
+    def test_intent_is_read_from_the_form_field(self) -> None:
+        self.assertEqual(coord.handoff_intent(str(handoff_issue(1, "fyi", 1)["body"])), "fyi")
+        self.assertEqual(coord.handoff_intent(str(handoff_issue(1, "Action", 1)["body"])), "action")
+        self.assertEqual(coord.handoff_intent(str(handoff_issue(1, "feedback", 1)["body"])), "feedback")
+        self.assertEqual(coord.handoff_intent(str(handoff_issue(1, None, 1)["body"])), "unknown")
+        self.assertEqual(coord.handoff_intent(str(handoff_issue(1, "whatever", 1)["body"])), "unknown")
+
+    def test_a_fyi_handoff_expires_after_fourteen_days_and_not_before(self) -> None:
+        young = self.plan(handoff_issue(1, "fyi", 13), [])
+        self.assertEqual(young.outcome, "none")
+        old = self.plan(handoff_issue(1, "fyi", 14), [])
+        self.assertEqual(old.outcome, "expire")
+        self.assertFalse(old.close)
+        assert old.comment
+        self.assertIn("<!-- egregore-handoff-expiry:", old.comment)
+        self.assertIn("does not mark the work done", old.comment)
+        self.assertNotIn("status:done", old.comment)
+
+    def test_close_mode_closes_as_not_planned_and_never_marks_done(self) -> None:
+        plan = self.plan(handoff_issue(1, "fyi", 30), [], mode="close")
+        self.assertEqual((plan.outcome, plan.close), ("expire", True))
+        self.assertEqual(coord.handoff_expiry_mode("close"), "close")
+        self.assertEqual(coord.handoff_expiry_mode("anything else"), "flag")
+        self.assertEqual(coord.handoff_expiry_mode(""), "flag")
+
+    def test_an_untouched_feedback_or_fyi_handoff_expires_after_fourteen_days(self) -> None:
+        workflow_only = [comment(coord.HYGIENE_MARKER + "\nHygiene ok", NOW - timedelta(days=20), 1)]
+        for intent in ("feedback", "fyi", None):
+            self.assertEqual(self.plan(handoff_issue(1, intent, 20), []).outcome, "expire", intent)
+            self.assertEqual(self.plan(handoff_issue(1, intent, 20), workflow_only).outcome, "expire", intent)
+            self.assertEqual(self.plan(handoff_issue(1, intent, 13), []).outcome, "none", intent)
+
+    def test_an_untouched_action_handoff_is_never_expired_by_age(self) -> None:
+        workflow_only = [comment(coord.HYGIENE_MARKER + "\nHygiene ok", NOW - timedelta(days=20), 1)]
+        for age in (14, 20, 60, 400, 5000):
+            for mode in ("flag", "close"):
+                for thread in ([], workflow_only):
+                    plan = self.plan(handoff_issue(1, "action", age), thread, mode=mode)
+                    self.assertEqual((plan.outcome, plan.comment, plan.close), ("hold", None, False), (age, mode))
+        self.assertEqual(self.plan(handoff_issue(1, "action", 13), []).outcome, "none")
+
+    def test_picked_up_action_and_feedback_without_evidence_stay_open_for_a_person(self) -> None:
+        for intent in ("action", "feedback", None):
+            for age in (14, 60, 400):
+                touched = [comment("Looking at this.", NOW - timedelta(days=age), 1)]
+                plan = self.plan(handoff_issue(1, intent, age), touched)
+                self.assertEqual(plan.outcome, "hold", (intent, age))
+                self.assertIsNone(plan.comment)
+                self.assertFalse(plan.close)
+        claim = [
+            comment(
+                f"Claim-Agent: cursor\nLease-Expires: {iso(NOW - timedelta(days=20))}\n",
+                NOW - timedelta(days=21),
+                1,
+            )
+        ]
+        self.assertEqual(self.plan(handoff_issue(1, "action", 21), claim).outcome, "hold")
+
+    def test_evidence_does_not_let_age_close_it_either(self) -> None:
+        evidence = [comment("Agent: Cursor\n\n## Evidence\nShipped.", NOW - timedelta(days=20), 1)]
+        plan = self.plan(handoff_issue(1, "action", 90), evidence)
+        self.assertEqual(plan.outcome, "none")
+        self.assertIsNone(plan.comment)
+        self.assertFalse(plan.close)
+
+    def test_age_alone_never_sets_done_for_any_age_or_intent(self) -> None:
+        for intent in ("action", "feedback", "fyi", None):
+            for age in (1, 14, 100, 5000):
+                plan = self.plan(handoff_issue(1, intent, age), [])
+                text = (plan.comment or "") + plan.reason
+                self.assertNotIn("status:done", text)
+                self.assertIn(plan.outcome, ("none", "expire", "hold"))
+
+    def test_other_kinds_done_handoffs_and_live_leases_are_left_alone(self) -> None:
+        task = handoff_issue(1, "fyi", 90)
+        task["title"] = "[Task]: not a handoff"
+        task["labels"] = [{"name": "type:task"}]
+        self.assertEqual(self.plan(task, []).outcome, "none")
+        done = handoff_issue(2, "fyi", 90, ["type:handoff", "status:done"])
+        self.assertEqual(self.plan(done, []).outcome, "none")
+        self.assertEqual(self.plan(handoff_issue(3, "fyi", 90), [], lease_active=True).outcome, "none")
+
+    def test_the_expiry_note_does_not_restart_the_window_or_repeat(self) -> None:
+        first = self.plan(handoff_issue(1, "fyi", 20), [])
+        assert first.comment
+        noted = [comment(first.comment, NOW - timedelta(hours=1), 5)]
+        again = self.plan(handoff_issue(1, "fyi", 20), noted)
+        self.assertEqual(again.outcome, "none")
+        self.assertEqual(again.reason, "expiry already noted")
+        # A newer comment from a person opens a new window.
+        replied = noted + [comment("Still relevant.", NOW - timedelta(days=2), 6)]
+        self.assertEqual(self.plan(handoff_issue(1, "fyi", 20), replied).outcome, "none")
+
+    def test_close_mode_still_closes_a_handoff_already_flagged_in_flag_mode(self) -> None:
+        flagged = self.plan(handoff_issue(1, "fyi", 20), [])
+        assert flagged.comment
+        noted = [comment(flagged.comment, NOW - timedelta(hours=1), 5)]
+        self.assertEqual(self.plan(handoff_issue(1, "fyi", 20), noted).outcome, "none")
+        closing = self.plan(handoff_issue(1, "fyi", 20), noted, mode="close")
+        self.assertEqual((closing.outcome, closing.close), ("expire", True))
+        assert closing.comment
+        self.assertIn(coord.CLOSING_NOTE, closing.comment)
+
+    def test_a_posted_closing_note_with_a_failed_close_retries_the_close_without_a_second_note(self) -> None:
+        first = self.plan(handoff_issue(1, "fyi", 20), [], mode="close")
+        assert first.comment
+        noted = [comment(first.comment, NOW - timedelta(hours=1), 5)]
+        retry = self.plan(handoff_issue(1, "fyi", 20), noted, mode="close")
+        self.assertEqual((retry.outcome, retry.close, retry.comment), ("expire", True, None))
+        # Back in flag mode the same thread asks for nothing.
+        self.assertEqual(self.plan(handoff_issue(1, "fyi", 20), noted).outcome, "none")
+
+    def test_an_fyi_handoff_with_evidence_is_left_for_a_person_even_in_close_mode(self) -> None:
+        evidence = [comment("Agent: Cursor\n\n## Evidence\nShipped.", NOW - timedelta(days=20), 1)]
+        for mode in ("flag", "close"):
+            plan = self.plan(handoff_issue(1, "fyi", 40), evidence, mode=mode)
+            self.assertEqual((plan.outcome, plan.comment, plan.close), ("none", None, False), mode)
+
+    def test_the_expiry_note_does_not_restart_the_stall_clock(self) -> None:
+        issue = handoff_issue(1, "fyi", 20)
+        first = coord.scan_issue(issue, [], NOW)
+        bodies = [step.body for step in first.steps if step.kind == "comment"]
+        self.assertEqual(len(bodies), 2)
+        posted = [comment(body, NOW - timedelta(days=2), index + 1) for index, body in enumerate(bodies)]
+        # Four days on, nothing new was said by anyone. No second stall flag, no second expiry note.
+        later = coord.scan_issue(issue, posted, NOW + timedelta(days=4))
+        self.assertEqual([step.counts for step in later.steps if step.kind == "comment"], [])
+
+
+class ScanThenApplyTests(unittest.TestCase):
+    run_watch = LeaseWatchSummaryTests.run_watch
+    claim = LeaseWatchSummaryTests.claim
+
+    def test_scan_writes_nothing_and_the_plan_lists_every_write(self) -> None:
+        issue = handoff_issue(31, "fyi", 20)
+        plan = coord.scan_issue(issue, [], NOW)
+        # The expiry note, and the stall flag the same idle handoff already earns.
+        self.assertEqual([step.counts for step in plan.steps if step.kind == "comment"], ["stall", "handoff_expired"])
+        self.assertEqual(plan.handoff, "expire")
+        self.assertEqual(
+            coord.lease_watch_run_class(active=1, expired=0, conflicts_warned=0, stalls_flagged=0, handoffs_expired=1),
+            "handoff",
+        )
+
+    def test_a_fyi_handoff_is_flagged_through_the_watch_and_never_marked_done(self) -> None:
+        issues = [handoff_issue(31, "fyi", 20)]
+        code, log, posts = self.run_watch(issues, {31: []})
+        self.assertEqual(code, 0)
+        bodies = [str(payload.get("body")) for _p, payload in posts if isinstance(payload, dict) and "body" in payload]
+        self.assertEqual(len([b for b in bodies if "egregore-handoff-expiry" in b]), 1)
+        self.assertFalse(any(path for path, _ in posts if "PATCH" in path))
+        self.assertNotIn("status:done", "".join(str(payload) for _p, payload in posts if not str(payload).startswith("{'body'")))
+        self.assertIn("handoffs expired 1", log)
+
+    def test_close_mode_patches_the_issue_closed_as_not_planned(self) -> None:
+        issues = [handoff_issue(32, "fyi", 20)]
+        with patch.dict(os.environ, {"EGREGORE_HANDOFF_EXPIRY": "close"}):
+            code, log, posts = self.run_watch(issues, {32: []})
+        self.assertEqual(code, 0)
+        patched = [payload for path, payload in posts if path.endswith("/issues/32")]
+        self.assertEqual(patched, [{"state": "closed", "state_reason": "not_planned"}])
+
+    def test_close_mode_retries_only_the_close_when_the_note_already_exists(self) -> None:
+        first = coord.handoff_plan(
+            "[Handoff]: x", ["type:handoff"], str(handoff_issue(34, "fyi", 20)["body"]),
+            NOW - timedelta(days=20), [], NOW, lease_active=False, mode="close",
+        )
+        assert first.comment
+        issues = [handoff_issue(34, "fyi", 20)]
+        thread = {34: [comment(first.comment, NOW - timedelta(hours=1), 9)]}
+        with patch.dict(os.environ, {"EGREGORE_HANDOFF_EXPIRY": "close"}):
+            code, log, posts = self.run_watch(issues, thread)
+        self.assertEqual(code, 0)
+        bodies = [str(payload.get("body")) for _p, payload in posts if isinstance(payload, dict) and "body" in payload]
+        self.assertFalse(any("egregore-handoff-expiry" in b for b in bodies))
+        patched = [payload for path, payload in posts if path.endswith("/issues/34")]
+        self.assertEqual(patched, [{"state": "closed", "state_reason": "not_planned"}])
+        self.assertIn("handoffs expired 1", log)
+
+    def test_a_picked_up_action_handoff_is_held_and_counted_without_a_handoff_write(self) -> None:
+        issues = [handoff_issue(33, "action", 40)]
+        code, log, posts = self.run_watch(issues, {33: [comment("On it.", NOW - timedelta(days=39), 1)]})
+        self.assertEqual(code, 0)
+        bodies = [str(payload.get("body")) for _p, payload in posts if isinstance(payload, dict) and "body" in payload]
+        self.assertFalse(any("egregore-handoff-expiry" in b for b in bodies))
+        self.assertIn("handoffs held 1", log)
+        self.assertIn("handoffs expired 0", log)
+
+    def test_a_plan_is_dropped_when_the_thread_changed_after_the_scan(self) -> None:
+        issues = [handoff_issue(34, "fyi", 20), handoff_issue(35, "fyi", 20)]
+        code, log, posts = self.run_watch(issues, {34: [], 35: []}, drift={34})
+        self.assertEqual(code, 0)
+        targets = [path for path, _ in posts]
+        self.assertFalse(any("/issues/34/" in path for path in targets), targets)
+        self.assertTrue(any("/issues/35/comments" in path for path in targets), targets)
+        self.assertIn("issue 34: changed since the scan, plan dropped", log)
+        self.assertIn("plans stale 1", log)
+        self.assertIn("handoffs expired 1", log)
+
+    def test_an_issue_with_nothing_to_write_is_not_read_again(self) -> None:
+        created = NOW - timedelta(hours=1)
+        issues = [{"number": 7, "labels": [{"name": "status:in-progress"}]}]
+        self.run_watch(issues, {7: [self.claim("cursor", created, NOW + timedelta(hours=4), 1)]})
+        self.assertEqual(self.gets, [])
 
 
 def permission_lines(text: str) -> list[str]:
