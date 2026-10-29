@@ -57,6 +57,7 @@ STALL_AFTER = timedelta(days=3)
 STALL_LABEL = "stall:flagged"
 HANDOFF_EXPIRY = timedelta(days=14)
 HANDOFF_EXPIRY_RE = re.compile(r"<!-- egregore-handoff-expiry:(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) -->")
+CLOSING_NOTE = "Closed as not planned."
 HANDOFF_INTENTS = frozenset({"action", "feedback", "fyi"})
 WORKFLOW_MARKERS = (
     "<!-- egregore-stall:",
@@ -1064,14 +1065,22 @@ def handoff_plan(
     untouched = all(is_workflow_comment(str(comment.get("body") or "")) for comment in comments)
     if intent == "fyi" or untouched:
         stamp = activity.strftime("%Y-%m-%dT%H:%M:%SZ")
-        if any(match.group(1) == stamp for comment in comments for match in HANDOFF_EXPIRY_RE.finditer(str(comment.get("body") or ""))):
-            return HandoffPlan("none", "expiry already noted")
+        notes = [
+            str(comment.get("body") or "")
+            for comment in comments
+            if any(match.group(1) == stamp for match in HANDOFF_EXPIRY_RE.finditer(str(comment.get("body") or "")))
+        ]
         closing = mode == "close"
+        if notes and not closing:
+            return HandoffPlan("none", "expiry already noted")
+        if any(CLOSING_NOTE in note for note in notes):
+            # The closing note is posted but the close did not land. Retry the close alone.
+            return HandoffPlan("expire", "closing note posted; retrying the close", None, True)
         lines = [
             f"<!-- egregore-handoff-expiry:{stamp} -->",
             "",
             f"Handoff expired. Nothing has happened here since {stamp}, and no work is owed back.",
-            "This does not mark the work done. Closed as not planned." if closing else "This does not mark the work done. It stays open until a person closes it.",
+            f"This does not mark the work done. {CLOSING_NOTE}" if closing else "This does not mark the work done. It stays open until a person closes it.",
             "A newer comment starts a new 14-day window.",
         ]
         return HandoffPlan("expire", "idle for 14 days with nothing owed", "\n".join(lines) + "\n", closing)
@@ -1325,10 +1334,11 @@ def scan_issue(
         lease_active=state.status == "active",
         mode=handoff_mode,
     )
-    if handoff.outcome == "expire" and handoff.comment:
-        steps.append(PlanStep("comment", handoff.comment, counts="handoff_expired"))
+    if handoff.outcome == "expire":
+        if handoff.comment:
+            steps.append(PlanStep("comment", handoff.comment, counts="handoff_expired"))
         if handoff.close:
-            steps.append(PlanStep("close"))
+            steps.append(PlanStep("close", counts="" if handoff.comment else "handoff_expired"))
     return IssuePlan(number, thread_fingerprint(issue, comments), state.status, handoff.outcome, tuple(steps))
 
 
@@ -1366,6 +1376,8 @@ def apply_plan(repo: str, plan: IssuePlan, counts: dict[str, int]) -> None:
                 ["--method", "PATCH", f"repos/{repo}/issues/{number}", "--input", "-"],
                 {"state": "closed", "state_reason": "not_planned"},
             )
+            if step.counts:
+                counts[step.counts] = counts.get(step.counts, 0) + 1
         elif step.kind == "note":
             print(step.note, file=sys.stderr)
 

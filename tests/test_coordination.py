@@ -1464,6 +1464,25 @@ class HandoffLifecycleTests(unittest.TestCase):
         replied = noted + [comment("Still relevant.", NOW - timedelta(days=2), 6)]
         self.assertEqual(self.plan(handoff_issue(1, "fyi", 20), replied).outcome, "none")
 
+    def test_close_mode_still_closes_a_handoff_already_flagged_in_flag_mode(self) -> None:
+        flagged = self.plan(handoff_issue(1, "fyi", 20), [])
+        assert flagged.comment
+        noted = [comment(flagged.comment, NOW - timedelta(hours=1), 5)]
+        self.assertEqual(self.plan(handoff_issue(1, "fyi", 20), noted).outcome, "none")
+        closing = self.plan(handoff_issue(1, "fyi", 20), noted, mode="close")
+        self.assertEqual((closing.outcome, closing.close), ("expire", True))
+        assert closing.comment
+        self.assertIn(coord.CLOSING_NOTE, closing.comment)
+
+    def test_a_posted_closing_note_with_a_failed_close_retries_the_close_without_a_second_note(self) -> None:
+        first = self.plan(handoff_issue(1, "fyi", 20), [], mode="close")
+        assert first.comment
+        noted = [comment(first.comment, NOW - timedelta(hours=1), 5)]
+        retry = self.plan(handoff_issue(1, "fyi", 20), noted, mode="close")
+        self.assertEqual((retry.outcome, retry.close, retry.comment), ("expire", True, None))
+        # Back in flag mode the same thread asks for nothing.
+        self.assertEqual(self.plan(handoff_issue(1, "fyi", 20), noted).outcome, "none")
+
 
 class ScanThenApplyTests(unittest.TestCase):
     run_watch = LeaseWatchSummaryTests.run_watch
@@ -1497,6 +1516,23 @@ class ScanThenApplyTests(unittest.TestCase):
         self.assertEqual(code, 0)
         patched = [payload for path, payload in posts if path.endswith("/issues/32")]
         self.assertEqual(patched, [{"state": "closed", "state_reason": "not_planned"}])
+
+    def test_close_mode_retries_only_the_close_when_the_note_already_exists(self) -> None:
+        first = coord.handoff_plan(
+            "[Handoff]: x", ["type:handoff"], str(handoff_issue(34, "fyi", 20)["body"]),
+            NOW - timedelta(days=20), [], NOW, lease_active=False, mode="close",
+        )
+        assert first.comment
+        issues = [handoff_issue(34, "fyi", 20)]
+        thread = {34: [comment(first.comment, NOW - timedelta(hours=1), 9)]}
+        with patch.dict(os.environ, {"EGREGORE_HANDOFF_EXPIRY": "close"}):
+            code, log, posts = self.run_watch(issues, thread)
+        self.assertEqual(code, 0)
+        bodies = [str(payload.get("body")) for _p, payload in posts if isinstance(payload, dict) and "body" in payload]
+        self.assertFalse(any("egregore-handoff-expiry" in b for b in bodies))
+        patched = [payload for path, payload in posts if path.endswith("/issues/34")]
+        self.assertEqual(patched, [{"state": "closed", "state_reason": "not_planned"}])
+        self.assertIn("handoffs expired 1", log)
 
     def test_a_picked_up_action_handoff_is_held_and_counted_without_a_handoff_write(self) -> None:
         issues = [handoff_issue(33, "action", 40)]

@@ -82,7 +82,7 @@ The summary line now also ends with `handoffs expired`, `handoffs held`, and `pl
 Handoff lifecycle, from the same 14-day rule the egregore handoff tooling uses:
 
 - Age alone never marks anything done. Lease watch never sets `status:done`.
-- A handoff with no newer comment for 14 days expires when its intent is `fyi`, or when nobody ever picked it up (no comment except this workflow's own notes). Expiry posts one `egregore-handoff-expiry` comment per idle stretch. By default that is the whole change and the issue stays open. Set `EGREGORE_HANDOFF_EXPIRY=close` in the workflow to also close it as not planned.
+- A handoff with no newer comment for 14 days expires when its intent is `fyi`, or when nobody ever picked it up (no comment except this workflow's own notes). Expiry posts one `egregore-handoff-expiry` comment per idle stretch. By default that is the whole change and the issue stays open. Set `EGREGORE_HANDOFF_EXPIRY=close` in the workflow to also close it as not planned. Switching to `close` later also closes handoffs already flagged (one short closing note, then the close), and a close that failed is retried on the next run without a second note.
 - A handoff someone picked up (a claim or any comment) with intent `action` or `feedback` and no `## Evidence` comment stays open for a person, however old. Lease watch counts it under `handoffs held` and writes nothing for it.
 - A handoff with an evidence comment is left alone. A person closes it.
 - A live lease is never expired.
