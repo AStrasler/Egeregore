@@ -61,3 +61,5 @@ npm run dry-run   # builds the bundle; calls no Cloudflare API and deploys nothi
 ```
 
 Do not add a deploy script, a route, a custom domain, a binding, a variable, or a secret here without the owner's approval. The Worker's Cloudflare build uploads a version and does not deploy it. See the hosting doc.
+
+Builds for other branches, such as PR branches, run `npx wrangler versions check` from `/worker` with the watch path `worker/*`. That command validates the build and uploads nothing.
