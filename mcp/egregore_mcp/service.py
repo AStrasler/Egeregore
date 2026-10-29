@@ -475,12 +475,20 @@ class CoordinationService:
         if isinstance(fresh, dict) and fresh.get("ok") is False:
             return fresh
         if label == "status:done":
+            # Scan, then apply: the gate was decided from this read of the issue and thread.
+            planned = coord.issue_fingerprint(issue)
             done_refusal = self._done_refusal(fresh, comments)
             if done_refusal:
                 return done_refusal
             fresh = self._guard_mutation(issue_number)
             if isinstance(fresh, dict) and fresh.get("ok") is False:
                 return fresh
+            if coord.issue_fingerprint(fresh) != planned:
+                return err(
+                    "stale_plan",
+                    "The issue changed while the done gate was being checked. "
+                    "status:done was not set and nothing was posted. Read the issue again, then retry.",
+                )
         body = release_comment(agent=self.agent, reason=reason)
         posted = self._comment(issue_number, body)
         if isinstance(posted, dict) and posted.get("ok") is False:
