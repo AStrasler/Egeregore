@@ -289,10 +289,16 @@ class FixtureStore:
         self.reactions = {int(key): value for key, value in dataset.get("reactions", {}).items()}
         self.log: list[dict] = []
         self.fault: dict | None = None
+        self.drift: dict | None = None
         self.next_comment = 900001
 
     def _enter(self, op: str, **fields: object) -> None:
         self.log.append({"op": op, **fields})
+        drift = self.drift
+        if drift and drift["op"] == op:
+            # Someone else changed the issue while this call was in flight. Once.
+            self.issues[drift["number"]].update(drift["set"])
+            self.drift = None
         fault = self.fault
         if fault and fault["op"] == op and fault.get("times", 1) > 0:
             if fault.get("skip", 0) > 0:
@@ -478,10 +484,12 @@ def story(name, issues, comments, steps, *, pulls=None, reactions=None):
     return {"name": name, "dataset": dataset, "steps": steps}
 
 
-def step(tool, args=None, agent="cursor", fault=None):
+def step(tool, args=None, agent="cursor", fault=None, drift=None):
     item = {"tool": tool, "args": args or {}, "agent": agent}
     if fault:
         item["fault"] = fault
+    if drift:
+        item["drift"] = drift
     return item
 
 
@@ -644,6 +652,7 @@ def done_story():
     cases[62] = held(62, "Needs owner", f"PR: {link}50\n", labels=["type:task", "status:needs-owner", "agent:cursor"])
     cases[63] = held(63, "Stale head", f"PR: {link}56\n")
     cases[64] = held(64, "Mention is not evidence", "", evidence=False)
+    cases[65] = held(65, "Changed during the gate", "", evidence=False)
     issues = [cases[n][0] for n in sorted(cases)]
     # Task bodies that decide the pull-request rule are set after the fact.
     by_number = {item["number"]: item for item in issues}
@@ -651,6 +660,7 @@ def done_story():
     by_number[47]["body"] = task_body("cursor").replace("Because.", "This needs a pull request before it is done.")
     by_number[61]["body"] = task_body("cursor").replace("Something useful.", "Research only.")
     by_number[64]["body"] = task_body("cursor").replace("Something useful.", "Research only.")
+    by_number[65]["body"] = task_body("cursor").replace("Something useful.", "Research only.")
     comments = {str(n): cases[n][1] for n in cases}
     # Evidence issue that names task 61 and an unrelated one that names 64 inside another number.
     issues.append(issue(70, "[Evidence]: for sixty-one", "### Project\n\ncoordination\n\n### Related issue\n\n#61\n", [label("type:evidence")]))
@@ -659,6 +669,8 @@ def done_story():
     comments["71"] = []
     issues.append(issue(72, "A plain issue naming 64", f"See {REPO}#64 and #64\n", []))
     comments["72"] = []
+    issues.append(issue(73, "[Evidence]: for sixty-five", "### Related issue\n\n#65\n", [label("type:evidence")]))
+    comments["73"] = []
     for number in (50, 51, 52, 53, 54, 55, 56):
         issues.append(pr_issue(number))
     pulls = {
@@ -683,6 +695,10 @@ def done_story():
         step("release_task", {"issue_number": number, "status": "done", "reason": "all finished"})
         for number in (40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 60, 61, 62, 63, 64)
     ]
+    # Scan, then apply. Task 65 is edited by someone else while the gate reads the issue list.
+    drift = {"op": "list_issues", "number": 65, "set": {"updated_at": "2026-10-29T12:30:00Z", "comments": 3}}
+    steps.append(step("release_task", {"issue_number": 65, "status": "done", "reason": "all finished"}, drift=drift))
+    steps.append(step("release_task", {"issue_number": 65, "status": "done", "reason": "all finished"}))
     steps.append(step("get_tasks", {"kind": "all", "state": "all", "limit": 100}))
     return story("done gate", issues, comments, steps, pulls=pulls, reactions=reactions)
 
@@ -827,6 +843,7 @@ async def _record_story(item: dict) -> dict:
         service = CoordinationService(store, entry["agent"], repo=REPO, now=lambda: now, auth_mode="github_app")
         store.log = []
         store.fault = copy.deepcopy(expand(entry["fault"])) if entry.get("fault") else None
+        store.drift = copy.deepcopy(entry["drift"]) if entry.get("drift") else None
         async with Client(build_server(service)) as client:
             result = await client.call_tool(entry["tool"], expand(entry["args"]))
         text = result.content[0].text
