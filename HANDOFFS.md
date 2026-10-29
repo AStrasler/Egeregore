@@ -18,7 +18,7 @@ A pass from Codex means the engineering looks right. Aaron still merges.
 
 ## How to send one
 
-Use the Handoff form. The receiver of an `action` handoff claims it with the lease comment in [OPERATIONS.md](OPERATIONS.md) before changing code or posting a review conclusion.
+Use the Handoff form. The receiver claims it with the lease comment in [OPERATIONS.md](OPERATIONS.md) before changing code or posting a review conclusion.
 
 The Access field starts with: "This handoff does not grant repository access, data access, credentials, or permission to merge or deploy." Keep that sentence. Add the repo URL where the work happens, and say whether Aaron has already granted the receiving role access there. If access is missing, stop and open an owner-decision issue. The handoff waits.
 
@@ -51,11 +51,11 @@ The Handoff form carries a short summary on top and the detail below it, so a re
 | Next action | yes | The single next step. |
 | Next steps | no | What follows the next action, in order. |
 
-Intent says what the receiver owes back:
+Intent says what the receiver owes back. It does not change who claims: the receiver of any handoff claims it first with the lease comment in [OPERATIONS.md](OPERATIONS.md), as [AGENTS.md](AGENTS.md) requires.
 
-- `action`: the receiver does the next step. Claim it with the lease comment in [OPERATIONS.md](OPERATIONS.md) before changing code or posting a review conclusion.
+- `action`: the receiver does the next step, such as changing code.
 - `feedback`: the receiver answers or reviews, and replies on the issue.
-- `fyi`: nothing is needed. It is context, and there is nothing to claim.
+- `fyi`: no work is expected. Reading it is the whole job.
 
 Pick the intent that is true. A handoff that needs an answer is `feedback`, not `fyi`.
 
