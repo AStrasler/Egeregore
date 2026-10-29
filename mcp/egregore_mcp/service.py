@@ -45,7 +45,7 @@ _SHA_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
 _STATE_PREFIX = "codex-review-state:v1 "
 _RECEIPT_RE = re.compile(r"Reviewed commit:\*\*\s*`([0-9a-fA-F]{7,40})`")
 _PULL_URL_RE = re.compile(
-    r"https://github\.com/(?P<owner>[A-Za-z0-9_.-]+)/(?P<name>[A-Za-z0-9_.-]+)/pull/(?P<number>\d+)",
+    r"https://github\.com/(?P<owner>[A-Za-z0-9_.-]+)/(?P<name>[A-Za-z0-9_.-]+)/pull/(?P<number>[0-9]+)",
     re.IGNORECASE,
 )
 _NO_PULL_RE = re.compile(
@@ -53,7 +53,7 @@ _NO_PULL_RE = re.compile(
     re.IGNORECASE,
 )
 _WANTS_PULL_RE = re.compile(r"\bpull request\b", re.IGNORECASE)
-_ISSUE_REF_RE = re.compile(r"(?<![\w/])#(\d+)\b")
+_ISSUE_REF_RE = re.compile(r"(?<![\w/])#([0-9]+)\b")
 _CODEX_BOT = "chatgpt-codex-connector"
 
 
