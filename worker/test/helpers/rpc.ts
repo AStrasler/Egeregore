@@ -1,3 +1,4 @@
+import { PERMISSIONS, type Principal } from "../../src/auth";
 import { createWorker, type Deps, type Env } from "../../src/index";
 
 export const HEADERS = {
@@ -41,4 +42,12 @@ export function client(worker: TestWorker, env: Env, agent: string | null = null
   };
 }
 
-export const agentFromHeader: Deps["resolveAgent"] = (request) => request.headers.get("x-test-agent");
+export const agentFromHeader: Deps["authenticate"] = async (request) => {
+  const agent = request.headers.get("x-test-agent");
+  return agent === null ? null : testPrincipal(agent);
+};
+
+/** A principal with every permission and tool on the test repository. */
+export function testPrincipal(agent: string, repo = "AStrasler/Egeregore"): Principal {
+  return { agent, permissions: new Set(PERMISSIONS), repos: new Set([repo.toLowerCase()]), tools: null };
+}

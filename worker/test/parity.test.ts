@@ -75,7 +75,7 @@ describe("parity with the Python MCP server", () => {
 
   it("answers every case through the whole Worker exactly as Python did", async () => {
     const github = new FakeGitHub({ dataset, now: () => NOW, publicKey: key.publicKey });
-    const worker = createWorker({ fetch: github.fetch, now: () => NOW, resolveAgent: agentFromHeader, api: API });
+    const worker = createWorker({ fetch: github.fetch, now: () => NOW, authenticate: agentFromHeader, api: API });
     const env = { EGREGORE_APP_ID: "123", EGREGORE_APP_INSTALLATION_ID: "42", EGREGORE_APP_PRIVATE_KEY: key.pkcs8Pem };
     const mismatches: string[] = [];
     let busiest = 0;
@@ -120,7 +120,7 @@ describe("parity with the Python MCP server", () => {
         publicKey: key.publicKey,
       };
       const github = new FakeGitHub(options);
-      const worker = createWorker({ fetch: github.fetch, now: () => NOW, resolveAgent: agentFromHeader, api: API });
+      const worker = createWorker({ fetch: github.fetch, now: () => NOW, authenticate: agentFromHeader, api: API });
       const env = { EGREGORE_APP_ID: "123", EGREGORE_APP_INSTALLATION_ID: "42", EGREGORE_APP_PRIVATE_KEY: key.pkcs8Pem };
       const mismatches: string[] = [];
       let index = 0;
