@@ -35,9 +35,9 @@ client (ChatGPT, Codex, Grokbot, Cursor)
   |  HTTPS  POST /mcp   Authorization: Bearer <agent token>
   v
 Worker `egeregore`
-  1. Reject non-/mcp paths, bad Origin or Host, and any request with no valid bearer token. Cheap, before parsing the body.
-  2. Hash the token, look it up in the agent table, bind the agent identity and its allowed roles.
-  3. createMcpHandler builds a fresh MCP server for this request.
+  1. Reject non-/mcp paths and bad Origin or Host. Cheap, before parsing the body.
+  2. Hash the bearer token, look it up in the token table, and bind the agent, permissions, repositories and tools of the matching record. No match leaves the request with no caller.
+  3. createMcpHandler builds a fresh MCP server for this request. Every tool call asks the access gate first: no caller is `unauthenticated`, a caller without the permission, tool or repository is `forbidden`.
   4. A tool call mints (or reuses, within this isolate) an installation token for Egeregore only.
   5. The tool reads or writes GitHub issues as egregore-coordinator[bot].
   v
@@ -52,9 +52,9 @@ Assets: the GitHub App private key, the agent tokens, the integrity of task stat
 
 | # | Threat | Control | Residual risk |
 | --- | --- | --- | --- |
-| 1 | An unauthenticated caller reaches the Worker. | Bearer token required on every request to `/mcp`, checked before the body is read. `workers_dev` and `preview_urls` stay off until the owner turns them on. No route, no custom domain. | A leaked URL plus a stolen token. See 2. |
-| 2 | An agent token is stolen. | Tokens are 256 bits of randomness, shown once, and stored only as SHA-256 hashes. One token per agent, so one can be revoked alone. A token can do only what the MCP tools allow: write issue comments and labels on `Egeregore`. It cannot merge, deploy, change settings, or approve. | The holder can act as that agent until the hash is removed. Rotation is a secret update by Aaron. |
-| 3 | An agent pretends to be another agent or role. | The agent identity comes from the token record. A caller-supplied `agent` argument is ignored. Each token lists the roles it may hold. | None beyond 2. |
+| 1 | An unauthenticated caller reaches the Worker. | Every tool needs a valid bearer token. Without one it answers `unauthenticated` in the tool envelope, makes no GitHub call, and says nothing about which part failed. `initialize` and `tools/list` return only fixed server metadata. `workers_dev` and `preview_urls` stay off until the owner turns them on. No route, no custom domain. | A leaked URL plus a stolen token. See 2. |
+| 2 | An agent token is stolen. | Tokens are 256 bits of randomness, shown once, and stored only as SHA-256 hashes. Each token is its own record, so one can be revoked alone, and each record limits the permissions, tools and repositories it may use. A token can do only what the MCP tools allow: write issue comments and labels on `Egeregore`. It cannot merge, deploy, change settings, or approve. | The holder can act as that agent until the hash is removed. Rotation is a secret update by Aaron. |
+| 3 | An agent pretends to be another agent or role. | The agent identity comes from the token record. No tool takes an `agent` argument, and an extra one is ignored. A token may act only as the one agent in its record, and never as `aaron`. | None beyond 2. |
 | 4 | An agent approves its own work. | There is no merge or approve tool. `Decision:` comments are honored only from Aaron's own GitHub account by the existing issue-hygiene workflow. A comment by `egregore-coordinator[bot]` is never approval. | Aaron pasting a decision for an agent. His call. |
 | 5 | The GitHub App private key leaks. | The key is a Worker secret, set by Aaron with `wrangler secret put`. It is never in the repo, a log, a tool result, or an error message. The Worker requests tokens with `repositories: ["Egeregore"]` and the permissions `issues:write`, `pull_requests:read`, `metadata:read` only, and checks the response, as the Python server does. | The key itself is not limited to one repository. The app is installed on all of Aaron's repositories, so whoever holds the key can mint a token for any of them, with Issues write and Pull requests read. Narrowing the installation to `Egeregore` is Aaron's decision. This design does not assume it. |
 | 6 | Prompt injection: text in an issue tells an agent to do something unsafe. | Tool results are data, not instructions. The server has no merge, deploy, settings, or approval tool, so the worst an injected agent can do is write issue comments. The existing `AGENTS.md` rules still apply to each agent. | Misleading comments in a public repo. Reviewable and reversible. |
@@ -63,18 +63,33 @@ Assets: the GitHub App private key, the agent tokens, the integrity of task stat
 | 9 | Supply chain: a bad package or action. | Exact versions in `package.json`, a committed lockfile, `npm ci`, and GitHub Actions pinned by full commit SHA. | Transitive packages. Dependabot is not enabled here. Aaron decides that. |
 | 10 | Accidental deploy or promotion. | Builds only upload versions. See "Build configuration". `wrangler.jsonc` has no route and no bindings. Aaron promotes by hand. | A Cloudflare setting changed in the dashboard. |
 | 11 | Build credentials too broad. | Use a Cloudflare API token limited to Workers Scripts edit and Account Settings read, on the Egregore account only. Do not let Workers Builds create its own broad token. | The current token Aaron gave the coordinator is broader than needed. Replace it. |
-| 12 | Denial of service or quota exhaustion. | Free plan: 100,000 requests per day, then Cloudflare returns errors. It does not bill. Auth runs first so junk requests are cheap. | An attacker with the URL can use up the day's quota. That is an outage, not a charge. |
+| 12 | Denial of service or quota exhaustion. | Free plan: 100,000 requests per day, then Cloudflare returns errors. It does not bill. A request with no valid token makes no GitHub call, so junk requests are cheap. | An attacker with the URL can use up the day's quota. That is an outage, not a charge. |
 
 ## Authentication
 
 ### Per-agent bearer tokens (first release)
 
-- Each agent (`cursor`, `codex`, `grokbot`, `chatgpt`) has its own token: 32 random bytes, base64url, generated by Aaron on his machine. It is shown once and handed to that agent's client config. It is never committed.
-- The Worker holds a secret `EGREGORE_AGENT_TOKENS`: a JSON object mapping each agent name to `{ "sha256": "<hex>", "roles": [...] }`. Only hashes are stored. A high-entropy random token does not need a slow hash, and a slow one would burn the 10 ms CPU budget.
-- On each request the Worker hashes the presented token and compares it to every stored hash in constant time. The matching record sets the identity. If none matches, the response is `401` with no detail.
-- The tools read the identity from the request's auth context (`authContext` in `createMcpHandler`, read with `getMcpAuthContext()`). The tools take no `agent` argument. This replaces the Python server's `EGREGORE_AGENT` environment variable, which only works because each process has one agent.
+- Each token is 32 random bytes, base64url, made by Aaron on his machine with `worker/scripts/generate-agent-token.mjs`. It is shown once and handed to that agent's client config. It is never committed. An agent may hold several tokens at once, so a rotation has no gap.
+- The Worker holds a secret `EGREGORE_AGENT_TOKENS`: a JSON array with one record per token. Only SHA-256 hashes are stored. A high-entropy random token does not need a slow hash, and a slow one would burn the 10 ms CPU budget. One SHA-256 per request is a few microseconds.
+- A record has these fields, and no others:
+
+  | Field | Meaning |
+  | --- | --- |
+  | `sha256` | The 64 hex characters of the SHA-256 of the token. Required, and unique in the array. |
+  | `agent` | `chatgpt`, `grokbot`, `cursor` or `codex`. The identity the token carries. `aaron` is not allowed. |
+  | `permissions` | A non-empty list from `read`, `write`, `review`. |
+  | `repos` | One to 16 explicit `owner/name` entries. No wildcard. Compared case-insensitively. |
+  | `tools` | `["*"]`, or a list of tool names from this server. |
+  | `label` | Optional note for people, up to 80 characters. Not used by the Worker. |
+
+- Permissions do not imply one another. `read` covers `ping`, `get_tasks`, `get_task`, `get_task_history`, `get_owner_decisions` and `get_specialists`. `write` covers `claim_task`, `renew_lease`, `release_task`, `post_progress` and `handoff_task`. `review` covers `request_review` alone, because it makes Codex run.
+- The whole array is rejected, and every tool answers `unauthenticated`, when it is unset, is not JSON, is over 16 KiB or 32 records, or has any record that breaks these rules. A typo can never leave one token working with more access than intended. The Worker does not say why. Run `worker/scripts/check-agent-tokens.mjs` before setting the secret to see the reasons.
+- On each request the Worker reads one `Authorization: Bearer` header of 32 to 256 characters, hashes it once, and compares the digest to every stored digest with a comparison that does not stop early. The matching record is the caller. The agent, and so every `Claim-Agent` and `Agent:` line the tools write, comes from that record. This replaces the Python server's `EGREGORE_AGENT` environment variable, which only works because each process has one agent.
+- Each tool call is checked in a fixed order: identity (`unauthenticated`), the tool allow-list, the permission, then the repository allow-list against the configured `EGREGORE_REPO` (`forbidden`). A tool with no permission mapped is refused. All of that runs before any GitHub call, so a refused call spends no subrequest. `EGREGORE_REPO` is also checked as a plain `owner/name`: empty, `.` and `..` segments, backslashes and extra slashes are refused.
+- This deviates from the first draft of this section, which had the Worker answer HTTP 401 before reading the body. The Worker now answers in the tool envelope, as the Python server does, so a client sees one error shape. The cost is that the body is parsed before the refusal. Parsing is cheap and `initialize` and `tools/list` expose only fixed metadata.
 - Revoke by removing one record and updating the secret. Rotate by adding a record, switching the client, then removing the old one.
-- The 5 KB limit on a Free-plan variable is far above what four records need.
+- The 5 KB limit on a Free-plan variable is far above what a few records need. The Worker accepts up to 16 KiB.
+- Setup steps for Aaron are in `worker/README.md`. The model comes from egregore-labs/egregore at d570d10, rewritten here. See `THIRD_PARTY_NOTICES.md`.
 
 ### OAuth (later, only if needed)
 
@@ -138,7 +153,7 @@ Each is small, reviewed by Codex, and merged only by Aaron. A merge deploys noth
 | 2 | `worker/` scaffold: pinned `package.json`, `wrangler.jsonc` (name `egeregore`, `workers_dev` false, `preview_urls` false, no bindings), a `ping` tool, Vitest tests, and the `worker` CI job. | Change the Cloudflare build settings first. |
 | 3 | The read-only tools in TypeScript: `get_tasks`, `get_task`, `get_task_history`, `get_owner_decisions`, `get_specialists`. A GitHub client with the App-token mint and its scope checks. Fake-GitHub tests. CPU and subrequest budgets measured. | Not reachable: no auth yet. |
 | 4 | The write tools: `claim_task`, `renew_lease`, `post_progress`, `handoff_task`, `request_review`, `release_task`. All the Python rules and tests ported, including `lease_conflict`, `lease_expired`, `wrong_role`, `not_claimable`, and the no-merge boundary. Delivered as two pull requests: 4a ports the six write tools and records them against the Python server as parity stories; 4b adds the handoff lifecycle rules and the scan-then-apply stale-plan check. The lifecycle rules run in the daily lease-watch workflow, which stays Python in GitHub Actions and is not moved into the Worker. The Worker gets the stale-plan check on the done gate (`stale_plan`). | Not reachable: no auth yet. |
-| 5 | Per-agent hashed bearer tokens. Identity from the token, no `agent` argument. Tests for missing, wrong, and cross-agent tokens. | Required before anything is reachable. |
+| 5 | Per-agent hashed bearer tokens and a fail-closed permission model (`read`, `write`, `review`, a tool allow-list and a repository allow-list). Identity from the token, no `agent` argument. Tests for missing, wrong, cross-agent and under-privileged tokens. A local script makes tokens and checks the config. With no secret set, every tool still answers `unauthenticated`. | Required before anything is reachable. |
 | 6 | Optional OAuth with GitHub login, only if a client needs it. | A separate decision by Aaron. |
 | 7 | Go live: Aaron sets the secrets and approves a release. The same smoke test used against the local server runs against the Worker. Cleanup. | Aaron's explicit approval. |
 

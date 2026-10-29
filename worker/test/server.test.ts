@@ -98,7 +98,7 @@ describe("MCP surface", () => {
 
   it("answers `unconfigured` to a write tool when no GitHub App is set, and still posts nothing", async () => {
     const github = new FakeGitHub({ dataset: { issues: [], comments: {} }, publicKey: key.publicKey });
-    const worker = createWorker({ fetch: github.fetch, resolveAgent: agentFromHeader });
+    const worker = createWorker({ fetch: github.fetch, authenticate: agentFromHeader });
     for (const name of WRITE_TOOLS) {
       const result = await client(worker, {}, "cursor").tool(name, WRITE_ARGS[name]);
       expect(result.structuredContent.error.code, name).toBe("unconfigured");
@@ -107,16 +107,17 @@ describe("MCP surface", () => {
   });
 
   it("answers `unconfigured` with the missing names when no GitHub App is set", async () => {
-    const worker = createWorker({ resolveAgent: agentFromHeader });
+    const worker = createWorker({ authenticate: agentFromHeader });
     const result = await client(worker, {}, "cursor").tool("get_tasks");
     expect(result.structuredContent.error.code).toBe("unconfigured");
     expect(result.structuredContent.error.details.missing).toEqual(["EGREGORE_APP_ID", "EGREGORE_APP_PRIVATE_KEY"]);
   });
 
   it("flags a malformed repository setting instead of using it", async () => {
-    const worker = createWorker({ resolveAgent: agentFromHeader });
+    const worker = createWorker({ authenticate: agentFromHeader });
     const result = await client(worker, env({ EGREGORE_REPO: "not a repo" }), "cursor").tool("get_tasks");
-    expect(result.structuredContent.error.details.missing).toEqual(["EGREGORE_REPO"]);
+    expect(result.structuredContent.error.code).toBe("forbidden");
+    expect(result.structuredContent.error.details.reason).toBe("repo_invalid");
   });
 
   it("reads through the GitHub App with a repository-scoped token and no write call to the repository", async () => {
@@ -125,7 +126,7 @@ describe("MCP surface", () => {
       comments: { "1": [] },
     };
     const github = new FakeGitHub({ dataset, now: () => NOW, publicKey: key.publicKey });
-    const worker = createWorker({ fetch: github.fetch, now: () => NOW, resolveAgent: agentFromHeader, api: API });
+    const worker = createWorker({ fetch: github.fetch, now: () => NOW, authenticate: agentFromHeader, api: API });
     const result = await client(worker, env(), "cursor").tool("get_tasks");
     expect(result.structuredContent.ok).toBe(true);
     expect(result.structuredContent.result.count).toBe(1);
@@ -140,7 +141,7 @@ describe("MCP surface", () => {
 
   it("never puts the private key or a token in a response", async () => {
     const github = new FakeGitHub({ dataset: { issues: [], comments: {} }, now: () => NOW, publicKey: key.publicKey, failWith: { status: 500, times: 9, match: /issues$/ } });
-    const worker = createWorker({ fetch: github.fetch, now: () => NOW, resolveAgent: agentFromHeader, api: API });
+    const worker = createWorker({ fetch: github.fetch, now: () => NOW, authenticate: agentFromHeader, api: API });
     const result = await client(worker, env(), "cursor").tool("get_tasks");
     const text = JSON.stringify(result);
     expect(result.structuredContent.error.code).toBe("github_error");
@@ -155,14 +156,14 @@ describe("MCP surface", () => {
       publicKey: key.publicKey,
       tokenResponse: (base) => ({ ...base, repository_selection: "all" }),
     });
-    const worker = createWorker({ fetch: github.fetch, now: () => NOW, resolveAgent: agentFromHeader, api: API });
+    const worker = createWorker({ fetch: github.fetch, now: () => NOW, authenticate: agentFromHeader, api: API });
     const result = await client(worker, env(), "cursor").tool("get_tasks");
     expect(result.structuredContent.error.code).toBe("scope_refused");
   });
 
   it("reuses the installation token across requests in one isolate", async () => {
     const github = new FakeGitHub({ dataset: { issues: [], comments: {} }, now: () => NOW, publicKey: key.publicKey });
-    const worker = createWorker({ fetch: github.fetch, now: () => NOW, resolveAgent: agentFromHeader, api: API });
+    const worker = createWorker({ fetch: github.fetch, now: () => NOW, authenticate: agentFromHeader, api: API });
     for (let index = 0; index < 3; index += 1) {
       await client(worker, env(), "cursor").tool("get_tasks");
     }
@@ -172,7 +173,7 @@ describe("MCP surface", () => {
   it("gives each request its own subrequest budget", async () => {
     const issues = Array.from({ length: 40 }, (_, index) => ({ number: index + 1, title: "[Task]: x", state: "open", labels: [], body: "", html_url: "" }));
     const github = new FakeGitHub({ dataset: { issues, comments: {} }, now: () => NOW, publicKey: key.publicKey });
-    const worker = createWorker({ fetch: github.fetch, now: () => NOW, resolveAgent: agentFromHeader, api: API });
+    const worker = createWorker({ fetch: github.fetch, now: () => NOW, authenticate: agentFromHeader, api: API });
     for (let index = 0; index < 3; index += 1) {
       const before = github.calls.length;
       const result = await client(worker, env(), "cursor").tool("get_tasks", { limit: 40 });

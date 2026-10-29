@@ -7,8 +7,8 @@
  *
  * The writes comment, label and open handoff issues. They never merge, deploy,
  * change settings, or record an owner decision. This Worker has no way to know
- * who is calling yet, so every tool stays closed (`unauthenticated`) until a
- * caller identity is supplied.
+ * who is calling until a bearer token identifies the caller (src/auth.ts), so
+ * every tool stays closed (`unauthenticated`) without one.
  */
 import {
   ALLOWED_AGENTS,
@@ -596,7 +596,7 @@ export class CoordinationService {
     if (this.config.agent === null) {
       return err(
         "unauthenticated",
-        "This endpoint has no caller authentication yet, so the coordination tools are closed.",
+        "No valid bearer token identified a caller, so the coordination tools are closed.",
       );
     }
     return null;

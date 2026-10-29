@@ -7,7 +7,9 @@ import {
   type FetchLike,
 } from "./github";
 import { GitHubAppAuth } from "./github-app";
-import { CoordinationService } from "./service";
+import { authenticateRequest, decide, safeRepo, type Principal } from "./auth";
+import { CoordinationService, err, type Envelope } from "./service";
+import type { Json } from "./coordination";
 import { createServer } from "./server";
 
 /** Plain variables and secrets. Every field is optional because none is set yet. */
@@ -16,22 +18,27 @@ export interface Env {
   EGREGORE_APP_INSTALLATION_ID?: string;
   EGREGORE_APP_PRIVATE_KEY?: string;
   EGREGORE_REPO?: string;
+  /**
+   * A secret. A JSON array of token records: the SHA-256 of each bearer token,
+   * the agent it belongs to, and what it may do. See worker/README.md. Unset
+   * or invalid means every tool answers `unauthenticated`.
+   */
+  EGREGORE_AGENT_TOKENS?: string;
 }
 
 export interface Deps {
   fetch: FetchLike;
   now: () => number;
   /**
-   * Who is calling, as an Agent role. There is no authentication layer yet, so
-   * the default returns null and every coordination tool answers
-   * `unauthenticated`. The OAuth pull request replaces this.
+   * Who is calling. The default checks the bearer token against the hashed
+   * records in `EGREGORE_AGENT_TOKENS` and returns that token's principal, or
+   * null, which makes every tool answer `unauthenticated`. Tests replace it.
    */
-  resolveAgent: (request: Request) => string | null;
+  authenticate: (request: Request, env: Env) => Promise<Principal | null>;
   /** The GitHub API origin. Fixed in production. Tests point it at a fake. */
   api: string;
 }
 
-const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const DIGITS_RE = /^[0-9]+$/;
 
 interface AuthSlot {
@@ -50,7 +57,7 @@ export function createWorker(overrides: Partial<Deps> = {}): Worker {
   const deps: Deps = {
     fetch: (url, init) => fetch(url, init),
     now: () => Date.now(),
-    resolveAgent: () => null,
+    authenticate: (request, env) => authenticateRequest(request, env),
     api: GITHUB_API,
     ...overrides,
   };
@@ -79,7 +86,7 @@ export function createWorker(overrides: Partial<Deps> = {}): Worker {
   function buildService(env: Env, agent: string | null): CoordinationService {
     const problems: string[] = [];
     const repo = (env.EGREGORE_REPO ?? "").trim() || DEFAULT_REPO;
-    if (!REPO_RE.test(repo)) problems.push("EGREGORE_REPO");
+    if (safeRepo(repo) === null) problems.push("EGREGORE_REPO");
     const appId = (env.EGREGORE_APP_ID ?? "").trim();
     if (!DIGITS_RE.test(appId)) problems.push("EGREGORE_APP_ID");
     const installation = (env.EGREGORE_APP_INSTALLATION_ID ?? "").trim();
@@ -106,8 +113,17 @@ export function createWorker(overrides: Partial<Deps> = {}): Worker {
     async fetch(request, env, ctx) {
       // Stateless: a fresh server, service, GitHub client and subrequest budget
       // for every request. No Durable Object, no session, no binding.
-      const service = buildService(env ?? {}, deps.resolveAgent(request));
-      const handler = createMcpHandler(() => createServer(service), { route: "/mcp" });
+      const settings = env ?? {};
+      const principal = await deps.authenticate(request, settings);
+      const repo = (settings.EGREGORE_REPO ?? "").trim() || DEFAULT_REPO;
+      // The agent comes from the token's record. Nothing in the request body
+      // can name or change it.
+      const service = buildService(settings, principal?.agent ?? null);
+      const gate = (tool: string): Envelope | null => {
+        const decision = decide(principal, tool, repo);
+        return decision.allowed ? null : err(decision.code, decision.message, decision.details as Json);
+      };
+      const handler = createMcpHandler(() => createServer(service, gate), { route: "/mcp" });
       return handler(request, env, ctx);
     },
   };

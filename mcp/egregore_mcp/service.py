@@ -1332,7 +1332,7 @@ def service_from_env(now: Callable[[], datetime] | None = None) -> CoordinationS
     problems: list[str] = []
     if agent not in coord.ALLOWED_AGENTS:
         problems.append("EGREGORE_AGENT")
-    if not coord.REPO_RE.fullmatch(repo):
+    if coord.safe_repo(repo) is None:
         problems.append("EGREGORE_REPO")
     if github_app.app_credentials_present():
         if "EGREGORE_REPO" in problems:

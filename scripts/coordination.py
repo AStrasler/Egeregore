@@ -109,7 +109,7 @@ CLAIM_AGENT_RE = re.compile(r"^Claim-Agent:\s*([A-Za-z]+)\s*$")
 RELEASE_RE = re.compile(r"^Lease-Release:\s*([A-Za-z]+)\s*$")
 DECISION_RE = re.compile(r"^Decision:\s*(approve|reject)\b", re.IGNORECASE)
 BOUNDARY_LINE_RE = re.compile(r"^Data-Boundary:\s*coordination-only\s*$", re.IGNORECASE)
-REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+REPO_SEGMENT_RE = re.compile(r"[A-Za-z0-9_.-]{1,100}")
 
 
 @dataclass(frozen=True)
@@ -662,9 +662,27 @@ def label_names(labels: Sequence[object]) -> list[str]:
     return names
 
 
+def safe_repo(value: object) -> str | None:
+    """Return `owner/name`, or None. Strict: exactly two segments, each of 1 to
+    100 letters, digits, `_`, `.` or `-`, and neither made only of dots. A
+    leading, trailing or doubled slash, a backslash, a percent escape and a
+    control character all fail, and nothing is cleaned up first. The Worker
+    applies the same rules (worker/src/auth.ts) and both read the shared
+    vectors in worker/test/parity/repo-names.json."""
+    if not isinstance(value, str) or not value or len(value) > 200:
+        return None
+    parts = value.split("/")
+    if len(parts) != 2:
+        return None
+    for part in parts:
+        if not REPO_SEGMENT_RE.fullmatch(part) or set(part) == {"."}:
+            return None
+    return value
+
+
 def repo_name() -> str:
     repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
-    if not REPO_RE.fullmatch(repo):
+    if safe_repo(repo) is None:
         raise SystemExit("GITHUB_REPOSITORY must look like owner/name")
     return repo
 

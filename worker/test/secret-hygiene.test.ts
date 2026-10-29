@@ -253,7 +253,7 @@ describe("secret hygiene", () => {
           channels.error(caught);
         }
         // Through the tool surface as well: the reply is what a client sees.
-        const worker = createWorker({ fetch: hostile.fetch, now: () => NOW, api: API, resolveAgent: agentFromHeader });
+        const worker = createWorker({ fetch: hostile.fetch, now: () => NOW, api: API, authenticate: agentFromHeader });
         for (const [name, args] of READS) channels.reply(await client(worker, env({ EGREGORE_APP_PRIVATE_KEY: pem }), "cursor").tool(name, args));
         channels.done();
         expect(hostile.bearers.length, "the hostile GitHub saw no request").toBeGreaterThan(0);
@@ -268,7 +268,7 @@ describe("secret hygiene", () => {
       for (const status of [401, 403, 422, 500, 502]) {
         hostile.reset(style, true, status);
         const channels = new Channels();
-        const worker = createWorker({ fetch: hostile.fetch, now: () => NOW, api: API, resolveAgent: agentFromHeader });
+        const worker = createWorker({ fetch: hostile.fetch, now: () => NOW, api: API, authenticate: agentFromHeader });
         for (const [name, args] of READS) channels.reply(await client(worker, env(), "cursor").tool(name, args));
         // The client directly, so a thrown error is read too, not only the envelope.
         const auth = new GitHubAppAuth({ api: API, appId: "123", privateKey: key.pkcs8Pem, repo: REPO, installationId: "42", now: () => NOW, fetch: hostile.fetch });
@@ -298,7 +298,7 @@ describe("secret hygiene", () => {
         const hostile = new Hostile(key.pkcs8Pem);
         hostile.reset(style, mode === "repository");
         const channels = new Channels();
-        const worker = createWorker({ fetch: hostile.fetch, now: () => NOW, api: API, resolveAgent: agentFromHeader });
+        const worker = createWorker({ fetch: hostile.fetch, now: () => NOW, api: API, authenticate: agentFromHeader });
         for (const [name, args] of READS) channels.reply(await client(worker, env(), "cursor").tool(name, args));
         const auth = new GitHubAppAuth({ api: API, appId: "123", privateKey: key.pkcs8Pem, repo: REPO, installationId: "42", now: () => NOW, fetch: hostile.fetch });
         const budget = new SubrequestBudget();
@@ -322,7 +322,7 @@ describe("secret hygiene", () => {
     const hostile = new Hostile(key.pkcs8Pem);
     hostile.scopeBait = SHAPED.ghs;
     const channels = new Channels();
-    const worker = createWorker({ fetch: hostile.fetch, now: () => NOW, api: API, resolveAgent: agentFromHeader });
+    const worker = createWorker({ fetch: hostile.fetch, now: () => NOW, api: API, authenticate: agentFromHeader });
     for (const [name, args] of READS) channels.reply(await client(worker, env(), "cursor").tool(name, args));
     const auth = new GitHubAppAuth({ api: API, appId: "123", privateKey: key.pkcs8Pem, repo: REPO, installationId: "42", now: () => NOW, fetch: hostile.fetch });
     try {
@@ -345,14 +345,14 @@ describe("secret hygiene", () => {
       throw new TypeError(`fetch failed for ${header} ${url}`);
     };
     const channels = new Channels();
-    const worker = createWorker({ fetch: refuse, now: () => NOW, api: API, resolveAgent: agentFromHeader });
+    const worker = createWorker({ fetch: refuse, now: () => NOW, api: API, authenticate: agentFromHeader });
     for (const [name, args] of READS) channels.reply(await client(worker, env(), "cursor").tool(name, args));
     // Mint succeeds, then the repository call fails to connect with the installation token in the message.
     const mintThenRefuse = async (url: string, init: RequestInit): Promise<Response> => {
       if ((init.method ?? "GET") === "POST") return hostile.fetch(url, init);
       return refuse(url, init);
     };
-    const second = createWorker({ fetch: mintThenRefuse, now: () => NOW, api: API, resolveAgent: agentFromHeader });
+    const second = createWorker({ fetch: mintThenRefuse, now: () => NOW, api: API, authenticate: agentFromHeader });
     for (const [name, args] of READS) channels.reply(await client(second, env(), "cursor").tool(name, args));
     channels.done();
     expect(hostile.bearers).toContain(INSTALL);
@@ -417,7 +417,7 @@ describe("secret hygiene", () => {
         },
       };
       const github = new FakeGitHub({ dataset, publicKey: key.publicKey, now: () => NOW });
-      const worker = createWorker({ fetch: github.fetch, now: () => NOW, api: API, resolveAgent: agentFromHeader });
+      const worker = createWorker({ fetch: github.fetch, now: () => NOW, api: API, authenticate: agentFromHeader });
       for (const [tool, args] of READS) channels.reply(await client(worker, env(), "cursor").tool(tool, args));
       channels.done();
       expectClean(channels, { [name]: shaped }, `issue text, canary ${name}`);
@@ -444,7 +444,7 @@ describe("secret hygiene", () => {
     for (const [label, values] of Object.entries(cases)) {
       const channels = new Channels();
       const hostile = new Hostile(key.pkcs8Pem);
-      const worker = createWorker({ fetch: hostile.fetch, now: () => NOW, api: API, resolveAgent: agentFromHeader });
+      const worker = createWorker({ fetch: hostile.fetch, now: () => NOW, api: API, authenticate: agentFromHeader });
       for (const [name, args] of [...READS, ...WRITES]) channels.reply(await client(worker, values, "cursor").tool(name, args));
       channels.done();
       expectClean(channels, planted, `settings ${label}`);
@@ -468,7 +468,7 @@ describe("secret hygiene", () => {
       },
     };
     const github = new FakeGitHub({ dataset: held, now: () => NOW, publicKey: key.publicKey });
-    const worker = createWorker({ fetch: github.fetch, now: () => NOW, api: API, resolveAgent: agentFromHeader });
+    const worker = createWorker({ fetch: github.fetch, now: () => NOW, api: API, authenticate: agentFromHeader });
     for (const [tool, field, rest] of WRITE_TEXT) {
       for (const [name, value] of Object.entries(SHAPED)) {
         const channels = new Channels();
@@ -504,7 +504,7 @@ describe("secret hygiene", () => {
         text: style === "bearer" ? `${shaped} Bearer ${token}\n${key.pkcs8Pem}` : shaped,
       };
       const channels = new Channels();
-      const worker = createWorker({ fetch: github.fetch, now: () => NOW, api: API, resolveAgent: agentFromHeader });
+      const worker = createWorker({ fetch: github.fetch, now: () => NOW, api: API, authenticate: agentFromHeader });
       const reply = await client(worker, env(), "cursor").tool("claim_task", { issue_number: 1 });
       channels.reply(reply);
       channels.done();

@@ -1,20 +1,26 @@
 import { describe, expect, it } from "vitest";
 import worker from "../src/index";
+import { bearer, randomToken, recordFor } from "./helpers/tokens";
 
 const HEADERS = {
   "content-type": "application/json",
   accept: "application/json, text/event-stream",
 };
 
-async function rpc(body: unknown, init: RequestInit = {}): Promise<Response> {
+// The default worker, as deployed: the bearer path against a secret of hashed tokens.
+const TOKEN = randomToken();
+const ENV = { EGREGORE_AGENT_TOKENS: "" };
+
+async function rpc(body: unknown, init: RequestInit = {}, token: string | null = TOKEN): Promise<Response> {
+  ENV.EGREGORE_AGENT_TOKENS = JSON.stringify([await recordFor(TOKEN)]);
   const request = new Request("https://example.invalid/mcp", {
     method: "POST",
-    headers: HEADERS,
+    headers: { ...HEADERS, ...(token === null ? {} : bearer(token)) },
     body: JSON.stringify(body),
     ...init,
   });
   const ctx = { waitUntil() {}, passThroughOnException() {} } as unknown as ExecutionContext;
-  return worker.fetch(request as Parameters<typeof worker.fetch>[0], {}, ctx);
+  return worker.fetch(request as Parameters<typeof worker.fetch>[0], ENV, ctx);
 }
 
 /** The response is JSON or a one-event SSE stream. Return the JSON-RPC message. */
@@ -77,6 +83,14 @@ describe("egregore worker ping and transport", () => {
     });
     const msg = await message(res);
     expect(msg.result.content[0].text).toBe("pong");
+  });
+
+  it("refuses ping without a valid token, as every other tool does", async () => {
+    const call = { jsonrpc: "2.0", id: 6, method: "tools/call", params: { name: "ping", arguments: {} } };
+    for (const token of [null, randomToken()]) {
+      const msg = await message(await rpc(call, {}, token));
+      expect(msg.result.structuredContent.error.code).toBe("unauthenticated");
+    }
   });
 
   it("echoes a short message", async () => {
