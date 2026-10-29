@@ -8,7 +8,7 @@ Cursor or Codex starts `python3 -m egregore_mcp` and speaks MCP over stdin and s
 
 Streamable HTTP is the same process, bound to `127.0.0.1`. It is there for a client that speaks HTTP on the same machine. It is not a public endpoint. The server refuses any other bind address.
 
-The GitHub token stays in the client config on that machine.
+The GitHub token, or the GitHub App private key, stays in the client config on that machine. The server can mint an installation token from that key. Creating the app and storing the key are still owner decisions. This pull request does not do either.
 
 ## Cloudflare Workers free tier
 
@@ -22,8 +22,8 @@ Do not turn this into a paid Cloudflare plan, and do not add Vercel, Supabase, o
 
 ## What Aaron would have to approve later
 
-1. A GitHub App, or one token per role, so comments stop sharing `@AStrasler`.
+1. Creating the GitHub App, installing it only on `AStrasler/Egeregore`, and placing the private key in the local environment. The server already knows how to mint an installation token. It does not create the app.
 2. A Worker, or any other host, if local stdio is no longer enough.
-3. The secret that host would use to call GitHub.
+3. The secret that host would use to call GitHub. A personal token remains the local fallback until the app exists.
 
 Until then, each client runs the server itself.

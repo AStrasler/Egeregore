@@ -18,8 +18,10 @@ from egregore_mcp.service import CoordinationService, service_from_env
 INSTRUCTIONS = (
     "Egregore coordination tools for GitHub issues in this repository. "
     "EGREGORE_AGENT is the role written on the Agent line. "
-    "The GitHub token's login is the comment author. A shared token for @AStrasler "
-    "is still @AStrasler. This is not a separate GitHub identity. "
+    "With EGREGORE_APP_ID set, GitHub attributes comments to that GitHub App's bot, "
+    "for example egregore[bot], using a short-lived installation token limited to EGREGORE_REPO. "
+    "Without the app, the GitHub token's login is the comment author. A shared token for @AStrasler "
+    "is still @AStrasler. The Agent line is the role, not a login, and it is not Aaron's approval. "
     "These tools do not merge, deploy, change settings, change permissions, or record "
     "Decision: approve or Decision: reject. "
     "request_review posts the single line @codex review on an open pull request and stops after "

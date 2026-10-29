@@ -1,7 +1,8 @@
 """Coordination tools. Lease and decision rules come from scripts/coordination.py.
 
 Nothing here merges, deploys, changes repository settings, or records an owner
-decision. A shared GitHub token still shows up as that token's login.
+decision. A GitHub App installation posts as that app's bot. A shared personal
+token still shows up as that token's login.
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ from egregore_mcp.comments import (  # noqa: E402
     renewal_comment,
     work_repository,
 )
+from egregore_mcp import github_app  # noqa: E402
 from egregore_mcp.github_api import GitHubError, RestGitHub  # noqa: E402
 
 MAX_REVIEW_ROUNDS = 3
@@ -327,12 +329,14 @@ class CoordinationService:
         repo: str = "AStrasler/Egeregore",
         now: Callable[[], datetime] | None = None,
         config_problems: Sequence[str] = (),
+        auth_mode: str = "token",
     ) -> None:
         self.github = github
         self.agent = agent
         self.repo = repo
         self.now = now or (lambda: datetime.now(timezone.utc))
         self.config_problems = tuple(config_problems)
+        self.auth_mode = auth_mode
 
     def get_tasks(
         self,
@@ -772,8 +776,19 @@ class CoordinationService:
         return current.astimezone(timezone.utc)
 
     def _identity(self) -> dict[str, object]:
+        if self.auth_mode == "github_app":
+            return {
+                "agent": self.agent,
+                "auth": "github_app",
+                "github_login_is_separate": True,
+                "note": (
+                    "Comments are attributed to the GitHub App bot, for example egregore[bot], "
+                    "not to @AStrasler. The Agent line is the role, not a login, and it is not Aaron's approval."
+                ),
+            }
         return {
             "agent": self.agent,
+            "auth": "token",
             "github_login_is_separate": False,
             "note": (
                 "Comments are attributed to the GitHub user of EGREGORE_GITHUB_TOKEN. "
@@ -1312,11 +1327,28 @@ def service_from_env(now: Callable[[], datetime] | None = None) -> CoordinationS
     problems: list[str] = []
     if agent not in coord.ALLOWED_AGENTS:
         problems.append("EGREGORE_AGENT")
-    if not token:
-        problems.append("EGREGORE_GITHUB_TOKEN")
     if not coord.REPO_RE.fullmatch(repo):
         problems.append("EGREGORE_REPO")
+    if github_app.app_credentials_present():
+        if "EGREGORE_REPO" in problems:
+            raise SystemExit("EGREGORE_REPO must be owner/name before GitHub App authentication.")
+        try:
+            auth = github_app.GitHubAppAuth.from_env(api=api, repo=repo, now=now)
+            auth.authenticate()
+        except github_app.GitHubAppError as exc:
+            raise SystemExit(str(exc)) from None
+        github = RestGitHub(api=api, repo=repo, token_provider=auth.token)
+        return CoordinationService(
+            github,
+            agent,
+            repo=repo,
+            now=now,
+            config_problems=problems,
+            auth_mode="github_app",
+        )
+    if not token:
+        problems.append("EGREGORE_GITHUB_TOKEN")
     github = None
     if not problems:
         github = RestGitHub(api=api, token=token, repo=repo)
-    return CoordinationService(github, agent, repo=repo, now=now, config_problems=problems)
+    return CoordinationService(github, agent, repo=repo, now=now, config_problems=problems, auth_mode="token")

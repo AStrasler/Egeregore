@@ -1,1 +1,5 @@
 mcp==2.3.0
+# PyJWT signs the GitHub App RS256 JWT. The standard library cannot sign RSA.
+# cryptography is the RS256 backend PyJWT imports. Both are free (MIT, and Apache-2.0/BSD).
+PyJWT==2.15.1
+cryptography==50.0.2
