@@ -42,6 +42,8 @@ Aaron can note a result with a comment whose first line is `Decision: approve` o
 
 Filing the decision issue does not grant the request. Approval of one project does not grant another.
 
+Before filing, search open and closed `[Decision]` issues for the same request. If one already covers it, link it instead of filing a second one. If the new issue replaces an earlier decision issue, put that issue's number in the form's Supersedes field and say in the Request what changed. Write `none` when it replaces nothing. Supersedes is a pointer, not an action. It does not close the old issue or undo what was recorded there, and an agent does not treat a newer issue as replacing an older one because it is newer. The new issue still needs Aaron's own decision before anything proceeds.
+
 ## Handoffs
 
 Use a handoff issue when the next step belongs to a different role. The receiver claims it before starting. The Access field keeps the sentence that the handoff does not grant access. Details are in [HANDOFFS.md](HANDOFFS.md).

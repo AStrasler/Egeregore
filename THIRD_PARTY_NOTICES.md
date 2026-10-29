@@ -1,0 +1,48 @@
+# Third-party notices
+
+This repository is licensed under the Apache License, Version 2.0 (see [LICENSE](LICENSE)). Parts of its formats and documentation were adapted from the work below, which is licensed under the MIT License. Those parts keep the notice that follows.
+
+## Egregore (egregore-labs/egregore)
+
+- Source repository: https://github.com/egregore-labs/egregore
+- Source commit: `d570d103df64518ad56ea864c334aae0fc0c787c` (`d570d10`)
+- License: MIT, from the `LICENSE` file at that commit.
+- Copyright holder line: `Copyright (c) 2026 Egregore Labs`
+
+### What was adapted
+
+The adapted material is written in this repository's own words and fitted to its GitHub-issue workflow. No source file was copied whole. The notice is included because the structure and wording of some passages follow the sources.
+
+| Piece | Where it is used here | Source files at `d570d10` |
+|---|---|---|
+| Handoff fields: claim, ask, intent (`action`, `feedback`, `fyi`), decisions, open threads, next steps | [.github/ISSUE_TEMPLATE/handoff.yml](.github/ISSUE_TEMPLATE/handoff.yml), [HANDOFFS.md](HANDOFFS.md) | [`.claude/skills/handoff/SKILL.md`](https://github.com/egregore-labs/egregore/blob/d570d10/.claude/skills/handoff/SKILL.md), [`skills/preview-design/samples/handoff.json`](https://github.com/egregore-labs/egregore/blob/d570d10/skills/preview-design/samples/handoff.json) |
+| Decision records: supersession pointer and duplicate check | [.github/ISSUE_TEMPLATE/owner-decision.yml](.github/ISSUE_TEMPLATE/owner-decision.yml), [AGENTS.md](AGENTS.md), [docs/RUNBOOK.md](docs/RUNBOOK.md) | [`egregore_runtime/knowledge.py`](https://github.com/egregore-labs/egregore/blob/d570d10/egregore_runtime/knowledge.py), [`.claude/skills/reflect/SKILL.md`](https://github.com/egregore-labs/egregore/blob/d570d10/.claude/skills/reflect/SKILL.md) |
+| Verbatim-evidence rules for specialist output | [docs/SPECIALISTS.md](docs/SPECIALISTS.md) | [`.claude/skills/deep-reflect/ROLES.md`](https://github.com/egregore-labs/egregore/blob/d570d10/.claude/skills/deep-reflect/ROLES.md) |
+
+Later changes that adapt more of this source will add their files to this table.
+
+### License text
+
+```text
+MIT License
+
+Copyright (c) 2026 Egregore Labs
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```

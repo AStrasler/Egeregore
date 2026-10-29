@@ -25,6 +25,7 @@ The Access field starts with: "This handoff does not grant repository access, da
 ## What travels with the handoff
 
 - The outcome and the related issue link.
+- The claim, the ask, and the intent (see [Handoff fields](#handoff-fields)).
 - What is already done, with links a reader can open.
 - The single next action.
 - Branch or pull request URLs, when those exist.
@@ -34,6 +35,33 @@ Leave these out of the handoff:
 - Exports, datasets, health metrics, screenshots of personal data, or credentials.
 - Permission to see a repository the receiver cannot already open.
 - Permission to copy anything out of the source project into a different project.
+
+## Handoff fields
+
+The Handoff form carries a short summary on top and the detail below it, so a receiver can decide in a few seconds whether the handoff is theirs.
+
+| Field | Required | What goes in it |
+|---|---|---|
+| Claim | yes | One sentence on where things stand now. Facts only, no hopes. |
+| Ask | yes | One sentence on what the receiver should do. |
+| Intent | yes | `action`, `feedback`, or `fyi`. See below. |
+| Done so far | yes | Facts and links the receiver can verify. |
+| Decisions | no | Choices already made that the receiver should not reopen. Write each as the decision, the reason, and what follows from it. |
+| Open threads | no | Questions or risks nobody has settled yet, each with a link to where it lives. |
+| Next action | yes | The single next step. |
+| Next steps | no | What follows the next action, in order. |
+
+Intent says what the receiver owes back. It does not change who claims: the receiver of any handoff claims it first with the lease comment in [OPERATIONS.md](OPERATIONS.md), as [AGENTS.md](AGENTS.md) requires.
+
+- `action`: the receiver does the next step, such as changing code.
+- `feedback`: the receiver answers or reviews, and replies on the issue.
+- `fyi`: no work is expected. Reading it is the whole job.
+
+Pick the intent that is true. A handoff that needs an answer is `feedback`, not `fyi`.
+
+Claim, Ask, and Intent are new. Issue hygiene still checks only the earlier fields, so a handoff opened without them is not flagged. Fill them in anyway.
+
+None of these fields carries data or access. Decisions and Open threads hold coordination facts, such as why a pull request was split, not exports, metrics, or credentials. The Access field and the data boundary checkbox stay exactly as they are.
 
 ## Cross-project notes
 
