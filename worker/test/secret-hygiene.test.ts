@@ -24,13 +24,18 @@ import { agentFromHeader, client } from "./helpers/rpc";
 
 const piece = (...parts: string[]): string => parts.join("");
 
-// Not matched by any secret pattern. Only a scrubber that remembers the exact value keeps these out.
-const INSTALL = piece("ghs", "_canaryInstallToken", "0123456789abcdef");
+// Not matched by any secret pattern: the dashes keep it from matching. Only a
+// scrubber that remembers the exact value keeps this out.
+const INSTALL = piece("ghs", "_canary-install-", "token-0123456789-abcdef");
 const NOW = Date.parse("2026-10-29T18:00:00Z");
 
 // Shaped like the patterns the service redacts. They arrive in issue text.
 const SHAPED: Record<string, string> = {
   ghp: piece("gh", "p_", "a".repeat(36)),
+  ghs: piece("gh", "s_", "d".repeat(36)),
+  gho: piece("gh", "o_", "e".repeat(36)),
+  ghu: piece("gh", "u_", "f".repeat(36)),
+  ghr: piece("gh", "r_", "g".repeat(36)),
   pat: piece("github", "_pat_", "B".repeat(30)),
   sk: piece("s", "k-", "c".repeat(30)),
   slack: piece("xo", "xb-", "1234567890-canary"),
@@ -54,6 +59,7 @@ class Hostile {
   style: Style = "inline";
   mintOk = true;
   repoStatus = 500;
+  scopeBait = "";
   readonly bearers: string[] = [];
   readonly bodies: string[] = [];
 
@@ -63,6 +69,7 @@ class Hostile {
     this.style = style;
     this.mintOk = mintOk;
     this.repoStatus = repoStatus;
+    this.scopeBait = "";
     this.bearers.length = 0;
     this.bodies.length = 0;
   }
@@ -71,17 +78,17 @@ class Hostile {
     const bearer = header.replace(/^Bearer /, "");
     switch (this.style) {
       case "inline":
-        return `Bad credentials for ${header} ${shapedLeak}`;
+        return `${shapedLeak} Bad credentials for ${header}`;
       case "bare":
-        return bearer;
+        return `${shapedLeak} ${bearer}`;
       case "json":
-        return JSON.stringify({ message: "Bad credentials", errors: [{ detail: header, body, shaped: shapedLeak }] });
+        return JSON.stringify({ message: `${shapedLeak} Bad credentials`, errors: [{ detail: header, body }] });
       case "padded":
-        return `${"x".repeat(200)} ${header}`;
+        return `${shapedLeak} ${"x".repeat(200)} ${header}`;
       case "html":
-        return `<html><body>${header} ${this.pem} ${shapedLeak}</body></html>`;
+        return `<html><body>${shapedLeak} ${header} ${this.pem}</body></html>`;
       default:
-        return `Bad credentials\n${header}\n${this.pem}`;
+        return `${shapedLeak} Bad credentials\n${header}\n${this.pem}`;
     }
   }
 
@@ -100,8 +107,16 @@ class Hostile {
           token: INSTALL,
           expires_at: new Date(NOW + 3600_000).toISOString().replace(/\.\d+Z$/, "Z"),
           repository_selection: "selected",
-          permissions: { issues: "write", pull_requests: "read", metadata: "read" },
-          repositories: [{ full_name: REPO, name: "Egeregore" }],
+          permissions: {
+            issues: "write",
+            pull_requests: "read",
+            metadata: "read",
+            ...(this.scopeBait ? { [`bait-${this.scopeBait}`]: "admin" } : {}),
+          },
+          repositories: [
+            { full_name: REPO, name: "Egeregore" },
+            ...(this.scopeBait ? [{ full_name: `other/${this.scopeBait}`, name: "x" }] : []),
+          ],
         }),
         { status: 201, headers: { "content-type": "application/json" } },
       );
@@ -222,7 +237,7 @@ describe("secret hygiene", () => {
         for (const [name, args] of READS) channels.reply(await client(worker, env({ EGREGORE_APP_PRIVATE_KEY: pem }), "cursor").tool(name, args));
         channels.done();
         expect(hostile.bearers.length, "the hostile GitHub saw no request").toBeGreaterThan(0);
-        expectClean(channels, { ...canaries(hostile, key.pkcs8Pem), ...pemPieces(key.pkcs1Pem) }, `mint failure, ${style}`);
+        expectClean(channels, { ...canaries(hostile, key.pkcs8Pem), ...pemPieces(key.pkcs1Pem), ...SHAPED }, `mint failure, ${style}`);
       }
     }
   });
@@ -254,6 +269,52 @@ describe("secret hygiene", () => {
         expectClean(channels, { ...canaries(hostile, key.pkcs8Pem), ...SHAPED }, `repository failure ${status}, ${style}`);
       }
     }
+  });
+
+  it("unknown secret-shaped text in an error body is redacted", async () => {
+    const shaped = Object.fromEntries(Object.entries(SHAPED).map(([name, value]) => [`shaped-${name}`, value]));
+    for (const style of STYLES) {
+      for (const mode of ["mint", "repository"] as const) {
+        const hostile = new Hostile(key.pkcs8Pem);
+        hostile.reset(style, mode === "repository");
+        const channels = new Channels();
+        const worker = createWorker({ fetch: hostile.fetch, now: () => NOW, api: API, resolveAgent: agentFromHeader });
+        for (const [name, args] of READS) channels.reply(await client(worker, env(), "cursor").tool(name, args));
+        const auth = new GitHubAppAuth({ api: API, appId: "123", privateKey: key.pkcs8Pem, repo: REPO, installationId: "42", now: () => NOW, fetch: hostile.fetch });
+        const budget = new SubrequestBudget();
+        const github = new GitHubClient({ api: API, repo: REPO, budget, fetch: hostile.fetch, token: () => auth.token(budget) });
+        try {
+          await github.getIssue(1);
+          expect.fail("an error status must throw");
+        } catch (caught) {
+          if (caught instanceof Error && caught.message.includes("must throw")) throw caught;
+          channels.error(caught);
+        }
+        channels.done();
+        expectClean(channels, shaped, `${mode} error body, ${style}`);
+        const shown = [...channels.parts.reply, ...channels.parts.error].join("\n");
+        expect(shown, `${mode}, ${style}: the echoed text was dropped, not redacted`).toContain("[redacted]");
+      }
+    }
+  });
+
+  it("a scope refusal does not repeat secret-shaped names", async () => {
+    const hostile = new Hostile(key.pkcs8Pem);
+    hostile.scopeBait = SHAPED.ghs;
+    const channels = new Channels();
+    const worker = createWorker({ fetch: hostile.fetch, now: () => NOW, api: API, resolveAgent: agentFromHeader });
+    for (const [name, args] of READS) channels.reply(await client(worker, env(), "cursor").tool(name, args));
+    const auth = new GitHubAppAuth({ api: API, appId: "123", privateKey: key.pkcs8Pem, repo: REPO, installationId: "42", now: () => NOW, fetch: hostile.fetch });
+    try {
+      await auth.token(new SubrequestBudget());
+      expect.fail("a payload with extra scope must be refused");
+    } catch (caught) {
+      if (caught instanceof Error && caught.message.includes("must be refused")) throw caught;
+      channels.error(caught);
+    }
+    channels.done();
+    expectClean(channels, { shapedGhs: SHAPED.ghs }, "scope refusal");
+    expect(channels.parts.error.join("\n")).toContain("[redacted]");
   });
 
   it("a connection failure does not echo the bearer", async () => {

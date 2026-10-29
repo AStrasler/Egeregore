@@ -31,7 +31,7 @@ export const MAX_LEASE_MS = 24 * 60 * 60 * 1000;
 
 const D = "\\p{Nd}";
 const SECRET_SOURCES: readonly string[] = [
-  "ghp_[A-Za-z0-9]{20,}",
+  "gh[pousr]_[A-Za-z0-9]{20,}",
   "github_pat_[A-Za-z0-9_]{20,}",
   "-----BEGIN [A-Z ]*PRIVATE KEY-----",
   `${WORD_START}AKIA[0-9A-Z]{16}${WORD_END}`,

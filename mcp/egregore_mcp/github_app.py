@@ -29,6 +29,7 @@ from typing import Callable, Mapping
 import jwt
 
 from egregore_mcp.github_api import GitHubError
+from egregore_mcp.redaction import redact_secrets
 
 # Do not add permissions. issues:write covers claims, comments, and labels.
 # pull_requests stays read-only. metadata:read is the GitHub minimum.
@@ -336,7 +337,7 @@ class GitHubAppAuth:
     def _scrub(self, text: str) -> str:
         for secret in sorted(self._secrets, key=len, reverse=True):
             text = text.replace(secret, "[redacted]")
-        return text
+        return redact_secrets(text)
 
     def _aware_now(self) -> datetime:
         current = self._now()
@@ -370,9 +371,11 @@ def check_permissions(granted: object) -> None:
             problems.append(label)
     if problems:
         raise GitHubAppScopeError(
-            "Refusing to start: installation token permissions must be "
-            "issues:write, pull_requests:read, metadata:read. "
-            f"Got {', '.join(problems)}."
+            redact_secrets(
+                "Refusing to start: installation token permissions must be "
+                "issues:write, pull_requests:read, metadata:read. "
+                f"Got {', '.join(problems)}."
+            )
         )
 
 
@@ -395,7 +398,7 @@ def check_repo_names(names: list[str], expected: str) -> None:
         return
     shown = ", ".join(names) if names else "(empty)"
     raise GitHubAppScopeError(
-        f"Refusing to start: installation token repository list must be only {expected}. Got {shown}."
+        redact_secrets(f"Refusing to start: installation token repository list must be only {expected}. Got {shown}.")
     )
 
 

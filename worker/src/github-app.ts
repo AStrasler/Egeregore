@@ -23,6 +23,7 @@ import {
   type FetchLike,
   type SubrequestBudget,
 } from "./github";
+import { redactText } from "./coordination";
 import { tryParseTime } from "./pycompat";
 
 export const REQUESTED_PERMISSIONS: Readonly<Record<string, string>> = {
@@ -201,9 +202,11 @@ export function checkPermissions(granted: unknown): void {
   }
   if (problems.length > 0) {
     throw new GitHubAppScopeError(
-      "Refusing to start: installation token permissions must be " +
-        "issues:write, pull_requests:read, metadata:read. " +
-        `Got ${problems.join(", ")}.`,
+      redactText(
+        "Refusing to start: installation token permissions must be " +
+          "issues:write, pull_requests:read, metadata:read. " +
+          `Got ${problems.join(", ")}.`,
+      ),
     );
   }
 }
@@ -232,7 +235,7 @@ export function checkRepoNames(names: readonly string[], expected: string): void
   }
   const shown = names.length > 0 ? names.join(", ") : "(empty)";
   throw new GitHubAppScopeError(
-    `Refusing to start: installation token repository list must be only ${expected}. Got ${shown}.`,
+    redactText(`Refusing to start: installation token repository list must be only ${expected}. Got ${shown}.`),
   );
 }
 
