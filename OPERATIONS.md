@@ -114,6 +114,7 @@ Grokbot checks `status:claimed`, `status:in-progress`, `status:blocked`, and `le
 - An expired lease is reclaimable. Read the last progress note, then either resume it or leave it `ready` for the role that should continue. Do not assign a second agent to redo finished steps.
 - `status:blocked` needs a comment that says what unblocks it. If that sentence is missing, ask once. Then leave it.
 - `status:needs-owner` waits for Aaron. One owner-decision issue is the handoff. The task label does not replace that issue. Do not reclaim it and do not poll him on a timer.
+- A handoff with no newer comment for 14 days expires if its intent is `fyi` or nobody picked it up. A picked-up `action` or `feedback` handoff without evidence stays open for a person. Age never sets `status:done`. See [HANDOFFS.md](HANDOFFS.md).
 - `status:needs-review` stays when a lease ends. Lease watch only rewrites `status:claimed` and `status:in-progress`. A review that never starts, including an `@codex` mention on an issue, sits until someone moves the label. The working review path is the pull request. See [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
 ## Completion

@@ -75,6 +75,18 @@ Lease watch is `.github/workflows/lease-watch.yml`. It runs daily at 12:17 UTC a
 
 Every lease-watch run prints one summary line: issues scanned, active, expired, and conflicts warned. That line has been on `main` since pull request #8 merged. A run that only sees active leases still prints the line. The companion hardening pull request adds a run class (`active`, `expired`, `conflict`, `no-op`, or `stall`) and one stall flag for a `status:needs-review` issue, a handoff, or a `status:needs-owner` issue with no newer comment for 3 days. The flag is one marker comment, plus `stall:flagged` when that label exists. It does not repeat for the same idle stretch, and it does not claim the issue. Until that pull request is on `main`, lease watch does not flag those idle issues.
 
+Lease watch scans first and applies second. The scan reads every open issue and its thread and writes nothing. It decides each write from that one read. Before an issue's writes, the apply pass reads the issue and its thread again. If the labels, state, update time, comment count, or any comment id changed since the scan, it drops that issue's plan, prints `issue N: changed since the scan, plan dropped`, and counts it under `plans stale`. The next run plans again. A dropped plan is not an error and does not fail the run.
+
+The summary line now also ends with `handoffs expired`, `handoffs held`, and `plans stale`. A run with only a handoff expiry has the class `handoff`, below `stall` and above `active`.
+
+Handoff lifecycle, from the same 14-day rule the egregore handoff tooling uses:
+
+- Age alone never marks anything done. Lease watch never sets `status:done`.
+- A handoff with no newer comment for 14 days expires when its intent is `fyi`, or when nobody ever picked it up (no comment except this workflow's own notes). Expiry posts one `egregore-handoff-expiry` comment per idle stretch. By default that is the whole change and the issue stays open. Set `EGREGORE_HANDOFF_EXPIRY=close` in the workflow to also close it as not planned.
+- A handoff someone picked up (a claim or any comment) with intent `action` or `feedback` and no `## Evidence` comment stays open for a person, however old. Lease watch counts it under `handoffs held` and writes nothing for it.
+- A handoff with an evidence comment is left alone. A person closes it.
+- A live lease is never expired.
+
 Dispatch lease watch when a claimed or in-progress label is still up after the lease ended and the next reader would take the wrong task. Reclaiming does not need the relabel. Do not dispatch on a timer.
 
 A blocked handoff stays blocked until the comment's unblocker happens. If the missing piece is repository access, a credential, or a Codex cloud environment, open one owner-decision issue and set the task to `status:needs-owner`. Do not leave it on `status:needs-review`.

@@ -63,6 +63,16 @@ Claim, Ask, and Intent are new. Issue hygiene still checks only the earlier fiel
 
 None of these fields carries data or access. Decisions and Open threads hold coordination facts, such as why a pull request was split, not exports, metrics, or credentials. The Access field and the data boundary checkbox stay exactly as they are.
 
+## How long a handoff stays open
+
+Lease watch applies these rules once a handoff has had no newer comment for 14 days. They follow the lifecycle rules in the egregore handoff tooling. See [docs/RUNBOOK.md](docs/RUNBOOK.md) for the mechanics.
+
+- Age alone never marks a handoff done. Only the done gate in `release_task` can set `status:done`, and it needs evidence.
+- An `fyi` handoff, or one nobody picked up, expires. Expiry is one comment, and the issue stays open unless the workflow runs in close mode.
+- An `action` or `feedback` handoff that someone picked up stays open for a person until there is an evidence comment, and then a person closes it.
+
+A new comment on the handoff starts a new 14-day window.
+
 ## Cross-project notes
 
 An agent may point at a pattern in another project ("the scheduler in Weather Intelligence is a useful reference for a WHOOP Lens reminder") and link to it. The agent who implements the reminder works from the WHOOP Lens repo's own code and access. They do not copy Weather Intelligence data into WHOOP Lens, or the reverse.
