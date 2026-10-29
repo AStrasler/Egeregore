@@ -47,6 +47,7 @@ The MCP server also exposes a read-only `get_specialists` catalog for six pinned
 | [HANDOFFS.md](HANDOFFS.md) | How a task moves between agents |
 | [OPERATIONS.md](OPERATIONS.md) | Labels, claims, stalled work, recovery, and when to stop |
 | [docs/RUNBOOK.md](docs/RUNBOOK.md) | Everyday intake, review, stalls, autonomy, and known limitations |
+| [docs/phase5-live-test-plan.md](docs/phase5-live-test-plan.md) | Live checks for the GitHub App, after Aaron creates it. Not run from this repo |
 | [ONBOARDING.md](ONBOARDING.md) | How to add a project such as WHOOP Lens or Weather Intelligence without sharing its data |
 
 ## After merge

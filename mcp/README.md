@@ -6,11 +6,10 @@ v0.1 does not merge, deploy, change settings, change permissions, or post `Decis
 
 ## Setup
 
-Python 3.12 or newer. The only direct dependency is the MCP Python SDK, pinned in `mcp/requirements.txt`.
+Python 3.12 or newer. Direct dependencies are pinned in `mcp/requirements.txt`: the MCP Python SDK, plus PyJWT and cryptography for the GitHub App JWT. The standard library cannot sign RS256. PyJWT is the small, well-known JWT library GitHub's own App examples use, and cryptography is the RS256 backend it imports. Both are free (MIT, and Apache-2.0/BSD). The repo client itself stays on the standard-library HTTP stack.
 
 ```bash
 python3 -m pip install -r mcp/requirements.txt
-export EGREGORE_GITHUB_TOKEN="paste locally, never commit"
 export EGREGORE_AGENT="cursor"
 export EGREGORE_REPO="AStrasler/Egeregore"
 PYTHONPATH=mcp python3 -m egregore_mcp
@@ -18,7 +17,35 @@ PYTHONPATH=mcp python3 -m egregore_mcp
 
 `EGREGORE_AGENT` is `chatgpt`, `grokbot`, `cursor`, `codex`, or `aaron`. The process writes it as an `Agent:` line on every comment except a review request.
 
-`EGREGORE_GITHUB_TOKEN` is a GitHub token that can read and write issues in this repo. The server reads it from the environment only. Do not put it in a file that gets committed.
+### GitHub App
+
+Aaron creates the private GitHub App and installs it only on `AStrasler/Egeregore`. This repository does not create the app, install it, or store its key. Expected installation permissions are Issues read and write, Pull requests read-only, and Metadata read-only. Do not grant Contents, Administration, Members, or anything that can merge or change repository settings.
+
+The server signs an RS256 JWT with the app private key (`iat` one minute in the past, `exp` eight minutes ahead, `iss` the app id) and exchanges it with `POST /app/installations/{id}/access_tokens`. That request asks only for the repository name in `EGREGORE_REPO` and only for `issues:write`, `pull_requests:read`, and `metadata:read`. The installation token is cached and refreshed five minutes before `expires_at`. A token that expires sooner than that window is used until it actually expires, then refreshed. If a refresh fails and the cached token is still unexpired, the server keeps using it. A refresh that comes back with a wider repository list stops the process.
+
+The process refuses to start when the installation token's repository list is anything other than `EGREGORE_REPO`, when `repository_selection` is `all`, or when the returned permissions are broader or narrower than the three above. It does not call merge, ruleset, or permission APIs.
+
+```bash
+export EGREGORE_APP_ID="the numeric app id"
+export EGREGORE_APP_INSTALLATION_ID="optional; omit to discover it"
+export EGREGORE_APP_PRIVATE_KEY_PATH="/absolute/path/outside/this/repo/egregore-app.pem"
+# or, instead of the path, the PEM text itself (real newlines or \n escapes):
+# export EGREGORE_APP_PRIVATE_KEY="paste the PEM here, never commit it"
+```
+
+`EGREGORE_APP_INSTALLATION_ID` is optional. When it is unset, the server discovers the id with `GET /repos/{owner}/{repo}/installation` using the app JWT. When `EGREGORE_APP_PRIVATE_KEY` is non-empty it wins over `EGREGORE_APP_PRIVATE_KEY_PATH`. Any of the app variables selects app mode. A partial set refuses to start, including when `EGREGORE_GITHUB_TOKEN` is also set, so a missing key cannot silently fall back to a personal token.
+
+Keep the private key out of the repo. `.gitignore` ignores `*.pem`. Do not commit a key, and do not paste one into an issue.
+
+### Personal token fallback
+
+When none of the app variables are set, the server uses `EGREGORE_GITHUB_TOKEN`, the same local path as v0.1. The process reads it from the environment only.
+
+```bash
+export EGREGORE_GITHUB_TOKEN="paste locally, never commit"
+```
+
+That token needs to be able to read and write issues in this repo. A token for `@AStrasler` still posts as `@AStrasler`. Use it for local runs before the app exists. Do not put it in a file that gets committed.
 
 Default transport is stdio. Streamable HTTP stays on localhost:
 
@@ -54,7 +81,7 @@ Error codes: `invalid_input`, `not_found`, `lease_conflict`, `lease_not_holder`,
 
 `stall` on a task is the same gate lease watch uses. `reason` comes from `stall_reason` (`needs-review`, `handoff`, `needs-owner`, or null). `flagged` is whether `stall:flagged` is already on the issue. `lease_blocks_flag` is true when `assess_lease` says the lease is active, which is when `stall_plan` refuses to flag. These tools do not post `<!-- egregore-stall: -->` and do not add or remove `stall:flagged`. A claim, progress note, or handoff is an ordinary comment, so it counts as newer activity for the next lease-watch run.
 
-`request_review` allows three completed Codex reviews of distinct commits. A fourth request returns `review_limit`. A receipt that already names the current head with no unresolved findings returns `review_current`. Findings on that same head return `review_same_head`. Another record for that same head returns `review_duplicate`. A second request while a review is still running returns `review_pending`. A closed or merged pull request returns `not_reviewable` and posts nothing. Push a new commit before asking again. When a summary and a receipt name the same commit, the summary's `has_unresolved_findings` flag wins, including when the summary was edited after the receipt. A summary or receipt counts only when `chatgpt-codex-connector[bot]` authored it. A copy from another login does not.
+`request_review` allows three completed Codex reviews of distinct commits. A fourth request returns `review_limit`. A receipt that already names the current head with no unresolved findings returns `review_current`. Findings on that same head return `review_same_head`. Another record for that same head returns `review_duplicate`. A second request while a review is still running returns `review_pending`. A closed or merged pull request returns `not_reviewable` and posts nothing. Push a new commit before asking again. When a summary and a receipt name the same commit, the summary's `has_unresolved_findings` flag wins, including when the summary was edited after the receipt. A summary or receipt counts only when `chatgpt-codex-connector[bot]` authored it. A copy from another login does not. With the GitHub App token, pull requests are read-only, so this post may return `github_error`. Do not widen the app permission to make it succeed.
 
 Renew, progress, handoff, and release re-read the issue immediately before they write. A closed issue, `status:done`, `status:blocked`, `status:needs-owner`, or `Approval needed: yes` returns `not_claimable` and posts nothing. An open task with a live lease can still renew, post progress, hand off, and release to `status:ready`.
 
@@ -62,7 +89,7 @@ Renew, progress, handoff, and release re-read the issue immediately before they 
 
 ## Cursor
 
-Put this in the Cursor MCP config for this machine. The token stays in that local config, not in the repo. `PYTHONPATH` is the absolute path of this `mcp/` directory.
+Put this in the Cursor MCP config for this machine. The app private key, or the personal token, stays in that local config, not in the repo. `PYTHONPATH` is the absolute path of this `mcp/` directory.
 
 ```json
 {
@@ -74,7 +101,8 @@ Put this in the Cursor MCP config for this machine. The token stays in that loca
         "PYTHONPATH": "/absolute/path/to/Egeregore/mcp",
         "EGREGORE_AGENT": "cursor",
         "EGREGORE_REPO": "AStrasler/Egeregore",
-        "EGREGORE_GITHUB_TOKEN": "local token, not committed"
+        "EGREGORE_APP_ID": "numeric app id",
+        "EGREGORE_APP_PRIVATE_KEY_PATH": "/absolute/path/outside/the/repo/egregore-app.pem"
       }
     }
   }
@@ -94,10 +122,11 @@ args = ["-m", "egregore_mcp"]
 PYTHONPATH = "/absolute/path/to/Egeregore/mcp"
 EGREGORE_AGENT = "codex"
 EGREGORE_REPO = "AStrasler/Egeregore"
-EGREGORE_GITHUB_TOKEN = "local token, not committed"
+EGREGORE_APP_ID = "numeric app id"
+EGREGORE_APP_PRIVATE_KEY_PATH = "/absolute/path/outside/the/repo/egregore-app.pem"
 ```
 
-The table name can differ by Codex version. The command, the agent id, and the token are the part that matters.
+The table name can differ by Codex version. The command, the agent id, and the credentials are the part that matters. For a local run before the app exists, set `EGREGORE_GITHUB_TOKEN` and leave the app variables unset.
 
 ## Identity
 
@@ -113,9 +142,11 @@ A losing claim also posts the conflict note from `coordination.py`. That note ke
 
 A handoff's Access field names the repository where the work happens. Coordination stays in this repo. WHOOP Lens stays at `AStrasler/WHOOP-Lens`. Another project keeps a repository URL already written on the task. It does not name this coordination repo in that sentence.
 
-GitHub attributes the comment to the user who owns `EGREGORE_GITHUB_TOKEN`. A token for `@AStrasler` means every agent still posts as `@AStrasler`. The `Agent` line is a role name. It is not a login, and it is not Aaron's approval.
+In GitHub App mode, GitHub attributes comments to the app's bot, for example `egregore[bot]`, not to `@AStrasler`. One installation serves every role that points at this server. The `Agent` line is still the role. It is not a login, and it is not Aaron's approval. The bot cannot merge: the token request does not ask for that, and there is no merge tool.
 
-This is not per-agent authentication. A real separation needs a GitHub App or a token per role. Creating either one is an owner decision. This server does not create them.
+With the personal-token fallback, GitHub attributes the comment to the user who owns `EGREGORE_GITHUB_TOKEN`. A token for `@AStrasler` means every agent still posts as `@AStrasler`.
+
+This is not a separate login per role. Creating the GitHub App, installing it, and holding the private key are owner decisions. This server does not create the app or change its permissions. `request_review` posts an issue comment on a pull request. Pull requests on the app token are read-only, so GitHub may reject that post with `github_error`. That refusal is not a reason to grant `pull_requests:write`. A local personal token can still post the mention when that token already has the scope.
 
 ## Tests
 
@@ -124,11 +155,11 @@ python3 -m pip install -r mcp/requirements.txt
 python3 -m unittest discover -s tests -v
 ```
 
-Unit tests call the tools with an in-memory GitHub. The protocol test starts the server over stdio, lists the tools, and calls some of them. The two-client test runs Cursor and Codex against that same fake GitHub: Cursor claims, Codex sees the claim and loses a conflicting claim, Cursor posts progress and a handoff, and Codex reads the handoff. CI runs that suite. It does not call the real GitHub API.
+Unit tests call the tools with an in-memory GitHub. The protocol test starts the server over stdio, lists the tools, and calls some of them. The two-client test runs Cursor and Codex against that same fake GitHub: Cursor claims, Codex sees the claim and loses a conflicting claim, Cursor posts progress and a handoff, and Codex reads the handoff. `tests/test_github_app_auth.py` points the app client at a local token endpoint and covers expiry and refresh, a repository list or permission set that refuses to start, and the personal-token fallback. CI runs that suite. It does not call the real GitHub API and it has no app private key.
 
 ## Relationship to main
 
-This branch is rebased on `main` at `0e1e4a2` (pull requests #9 and #11). It imports `scripts/coordination.py` and does not edit it.
+The package imports `scripts/coordination.py` and does not edit it. GitHub App authentication is optional. `EGREGORE_GITHUB_TOKEN` remains the fallback when the app variables are unset.
 
 `assess_lease`, `lease_conflict_comment`, and `conflict_comment_needed` are the claim path. `decision_plan` is the owner-decision path, and its authorization stays `recorded` or `none`. `stall_plan` stays in lease watch. The MCP reads `stall_reason` and the `stall:flagged` label, and it does not flag stalls itself. A live lease is not idle under `stall_plan`.
 
@@ -144,4 +175,4 @@ Issue comments are not a lock. Two clients can both read `status:ready` before e
 
 A pull request linked outside this repository is not marked merged. This server's GitHub client reads only `EGREGORE_REPO`. A task that requires a pull request and does not link one is not marked done. A handoff is read the same way, including `Done so far` and `Next action`.
 
-A live test against this repository was not run from the implementation environment. That environment has no `EGREGORE_GITHUB_TOKEN`, and its `gh` login cannot write issues here. Do not copy a token out of another session to force that test.
+A live test against this repository was not run from the implementation environment. That environment has no app private key and no `EGREGORE_GITHUB_TOKEN`. Do not copy a token or a key out of another session to force that test. The live sequence, after Aaron creates the app, is [docs/phase5-live-test-plan.md](../docs/phase5-live-test-plan.md).
