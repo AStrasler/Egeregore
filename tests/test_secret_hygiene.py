@@ -73,15 +73,20 @@ def piece(*parts: str) -> str:
     return "".join(parts)
 
 
-# Canaries that no pattern in coordination.SECRET_PATTERNS can catch. Only a
-# scrubber that remembers the exact value keeps these out of an error.
+# Canaries that no pattern in coordination.SECRET_PATTERNS can catch: the
+# dashes keep each from matching. Only a scrubber that remembers the exact
+# value keeps these out of an error.
 PAT_CANARY = piece("canary-pat-", "7f3a9c2d41")
-INSTALL_CANARY = piece("ghs", "_canaryInstallToken", "0123456789abcdef")
+INSTALL_CANARY = piece("ghs", "_canary-install-", "token-0123456789-abcdef")
 
 # Canaries shaped like the patterns in coordination.SECRET_PATTERNS. They arrive
 # in issue text, which the service redacts by pattern.
 SHAPED = {
     "ghp": piece("gh", "p_", "a" * 36),
+    "ghs": piece("gh", "s_", "d" * 36),
+    "gho": piece("gh", "o_", "e" * 36),
+    "ghu": piece("gh", "u_", "f" * 36),
+    "ghr": piece("gh", "r_", "g" * 36),
     "pat": piece("github", "_pat_", "B" * 30),
     "sk": piece("s", "k-", "c" * 30),
     "slack": piece("xo", "xb-", "1234567890-canary"),
@@ -114,6 +119,8 @@ class Hostile:
         self.style = "inline"
         self.mint_ok = True
         self.repo_status = 500
+        self.leak = ""
+        self.scope_bait = ""
         self.bearers: list[str] = []
         self.requests: list[str] = []
         self.server = _Quiet(("127.0.0.1", 0), self._handler())
@@ -130,6 +137,8 @@ class Hostile:
         self.style = style
         self.mint_ok = mint_ok
         self.repo_status = repo_status
+        self.leak = ""
+        self.scope_bait = ""
         self.bearers.clear()
         self.requests.clear()
 
@@ -137,18 +146,21 @@ class Hostile:
         """The error text. Every style puts a secret on its first line, in a different frame."""
         bearer = header.removeprefix("Bearer ").strip()
         style = self.style
+        lead = f"{self.leak} " if self.leak else ""
         if style == "inline":
-            text = f"Bad credentials for {header}"
+            text = f"{lead}Bad credentials for {header}"
         elif style == "bare":
-            text = bearer
+            text = f"{lead}{bearer}"
         elif style == "json":
-            return json.dumps({"message": "Bad credentials", "errors": [{"detail": header, "body": body}]}).encode()
+            return json.dumps(
+                {"message": f"{lead}Bad credentials", "errors": [{"detail": header, "body": body}]}
+            ).encode()
         elif style == "padded":
-            text = ("x" * 200) + " " + header
+            text = lead + ("x" * 200) + " " + header
         elif style == "html":
-            text = f"<html><body>{header} {self.pem}</body></html>"
+            text = f"<html><body>{lead}{header} {self.pem}</body></html>"
         else:
-            text = f"Bad credentials\n{header}\n{self.pem}"
+            text = f"{lead}Bad credentials\n{header}\n{self.pem}"
         return text.encode("utf-8")
 
     def _handler(self) -> type[BaseHTTPRequestHandler]:
@@ -186,6 +198,9 @@ class Hostile:
                         "permissions": {"issues": "write", "pull_requests": "read", "metadata": "read"},
                         "repositories": [{"full_name": REPO, "name": "Egeregore"}],
                     }
+                    if hostile.scope_bait:
+                        payload["permissions"][f"bait-{hostile.scope_bait}"] = "admin"
+                        payload["repositories"].append({"full_name": f"other/{hostile.scope_bait}", "name": "x"})
                     self._send(201, json.dumps(payload).encode())
                     return
                 self._send(hostile.repo_status, hostile.echo(header, body))
@@ -392,6 +407,47 @@ class HostileGitHubTests(LeakCase):
                         self.drive(service, channels)
                     self.assertIn(PAT_CANARY, self.hostile.bearers)
                     self.assert_clean(channels, self.canaries(), f"pat repo failure {status}, style {style}")
+
+    def test_unknown_secret_shaped_text_in_an_error_body_is_redacted(self) -> None:
+        """GitHub echoes a credential this process never held. Only the patterns can catch it."""
+        leak = " ".join(SHAPED.values())
+        shaped = {f"shaped-{name}": value for name, value in SHAPED.items()}
+        for style in STYLES:
+            for label in ("pat", "app-repo", "app-mint"):
+                with self.subTest(style=style, mode=label):
+                    channels = Channels()
+                    if label == "app-mint":
+                        self.hostile.reset(style=style, mint_ok=False)
+                        env_values = self.app_env()
+                    else:
+                        self.hostile.reset(style=style)
+                        env_values = self.app_env() if label == "app-repo" else self.pat_env()
+                    self.hostile.leak = leak
+                    with clean_env(**env_values), channels:
+                        try:
+                            service = service_from_env(lambda: START)
+                        except (SystemExit, github_app.GitHubAppError) as caught:
+                            channels.error(caught)
+                        else:
+                            self.drive(service, channels)
+                    self.assert_clean(channels, shaped, f"{label} error body, style {style}")
+                    shown = "\n".join(channels.parts["reply"] + channels.parts["error"])
+                    self.assertIn("[redacted]", shown, f"{label}, style {style}: the echoed text was dropped, not redacted")
+
+    def test_a_scope_refusal_does_not_repeat_secret_shaped_names(self) -> None:
+        """The refusal lists what GitHub granted. A hostile payload can put a secret-shaped string there."""
+        self.hostile.reset()
+        self.hostile.scope_bait = SHAPED["ghs"]
+        channels = Channels()
+        with clean_env(**self.app_env()), channels:
+            try:
+                service_from_env(lambda: START)
+            except (SystemExit, github_app.GitHubAppError) as caught:
+                channels.error(caught)
+            else:
+                self.fail("a payload with extra scope must stop startup")
+        self.assert_clean(channels, {"shaped-ghs": SHAPED["ghs"]}, "scope refusal")
+        self.assertIn("[redacted]", "\n".join(channels.parts["error"]))
 
     def test_connection_failure_does_not_echo_the_bearer(self) -> None:
         """urllib's own reason text can carry the request. Simulate a transport that does."""
@@ -691,6 +747,35 @@ class ProcessTests(LeakCase):
                 self.assert_clean(channels, canaries, f"stdio process, {label}")
 
 
+class PatternParityTests(unittest.TestCase):
+    """The Worker's redactText must redact exactly what the Python SECRET_PATTERNS do."""
+
+    def worker_sources(self) -> list[str]:
+        text = (ROOT / "worker" / "src" / "coordination.ts").read_text(encoding="utf-8")
+        block = re.search(r"const SECRET_SOURCES: readonly string\[\] = \[(.*?)\n\];", text, re.DOTALL)
+        self.assertIsNotNone(block, "SECRET_SOURCES not found in worker/src/coordination.ts")
+        found: list[str] = []
+        for line in block.group(1).splitlines():
+            line = line.strip().rstrip(",")
+            if not line:
+                continue
+            literal = line[1:-1]
+            literal = literal.replace("${WORD_START}", r"\b").replace("${WORD_END}", r"\b")
+            # Source text in the .ts file escapes a backslash once more than the regex does.
+            found.append(literal.replace("\\\\", "\\"))
+        return found
+
+    def test_worker_and_python_secret_patterns_are_the_same_list(self) -> None:
+        self.assertEqual(self.worker_sources(), [pattern.pattern for pattern in coord.SECRET_PATTERNS])
+
+    def test_every_github_token_prefix_is_covered(self) -> None:
+        for prefix in ("ghp", "gho", "ghu", "ghs", "ghr"):
+            sample = piece("gh", prefix[2], "_", "a" * 36)
+            with self.subTest(prefix=prefix):
+                self.assertTrue(coord.looks_like_secret(sample))
+                self.assertEqual(coord.redact_secrets(f"x {sample} y"), "x [redacted] y")
+
+
 class ManifestTests(unittest.TestCase):
     """tests/secret-hygiene.manifest.json against the tree."""
 
@@ -762,7 +847,7 @@ class ManifestTests(unittest.TestCase):
             for ref in entry["tests"]
             if ref.startswith("tests/test_secret_hygiene.py::")
         }
-        defined = {name for name in dir(HostileGitHubTests) + dir(SecretShapedTextTests) + dir(ProcessTests) if name.startswith("test_")}
+        defined = {name for name in dir(HostileGitHubTests) + dir(SecretShapedTextTests) + dir(ProcessTests) + dir(PatternParityTests) if name.startswith("test_")}
         self.assertEqual(sorted(listed - defined), [])
 
 
