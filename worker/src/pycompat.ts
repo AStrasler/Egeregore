@@ -107,3 +107,31 @@ export function pyHead(value: string, count: number): string {
   const points = Array.from(value);
   return points.length <= count ? value : points.slice(0, count).join("");
 }
+
+/** Python truthiness: empty strings, lists and dicts are false, as are 0, null and false. */
+export function pyTruthy(value: unknown): boolean {
+  if (value === null || value === undefined || value === false || value === 0 || value === "") {
+    return false;
+  }
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+  if (typeof value === "object") {
+    return Object.keys(value as object).length > 0;
+  }
+  return true;
+}
+
+/** urllib.parse.quote(value, safe=""): encodeURIComponent also leaves ! ' ( ) * alone. */
+export function pyQuote(value: string): string {
+  return encodeURIComponent(value).replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
+/** len(value): code points, not UTF-16 units. */
+export function pyLen(value: string): number {
+  let count = 0;
+  for (const _ of value) {
+    count += 1;
+  }
+  return count;
+}

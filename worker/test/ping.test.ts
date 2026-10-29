@@ -46,12 +46,25 @@ describe("egregore worker ping and transport", () => {
     expect(msg.result.serverInfo.name).toBe("egregore");
   });
 
-  it("lists ping and the five read tools", async () => {
+  it("lists ping, the five read tools and the six write tools", async () => {
     const res = await rpc({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
     expect(res.status).toBe(200);
     const msg = await message(res);
     expect(msg.result.tools.map((t: { name: string }) => t.name).sort()).toEqual(
-      ["get_owner_decisions", "get_specialists", "get_task", "get_task_history", "get_tasks", "ping"],
+      [
+        "claim_task",
+        "get_owner_decisions",
+        "get_specialists",
+        "get_task",
+        "get_task_history",
+        "get_tasks",
+        "handoff_task",
+        "ping",
+        "post_progress",
+        "release_task",
+        "renew_lease",
+        "request_review",
+      ],
     );
   });
 

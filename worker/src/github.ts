@@ -1,6 +1,6 @@
 /**
- * GitHub REST client for the read tools: a port of mcp/egregore_mcp/github_api.py
- * narrowed to what get_* needs, plus the guards the Python server does not have
+ * GitHub REST client for the read and write tools: a port of mcp/egregore_mcp/github_api.py
+ * narrowed to what the tools need, plus the guards the Python server does not have
  * because it is not running under Cloudflare's per-request limits.
  *
  * Workers Free allows 50 subrequests per request. Every outbound fetch here
@@ -8,7 +8,7 @@
  * budget is gone, so a large repository can never turn into a platform error.
  */
 import { redactText, type Json } from "./coordination";
-import { pyHead, pySplitLines, pyStrip } from "./pycompat";
+import { pyHead, pyQuote, pySplitLines, pyStrip } from "./pycompat";
 
 export const GITHUB_API = "https://api.github.com";
 export const DEFAULT_REPO = "AStrasler/Egeregore";
@@ -94,7 +94,7 @@ export interface SendOptions {
   fetch: FetchLike;
   budget: SubrequestBudget;
   scrubber: Scrubber;
-  method: "GET" | "POST";
+  method: "GET" | "POST" | "DELETE";
   url: string;
   bearer: string;
   body?: unknown;
@@ -179,9 +179,22 @@ export interface Listing {
 
 export interface GitHubReader {
   readonly budget: SubrequestBudget;
+  /** Pages the most recent list call read. A later read of the same list may need one more. */
+  readonly lastListPages: number;
   listIssues(state: string, maxPages: number): Promise<Listing>;
   getIssue(number: number): Promise<Json>;
   listComments(number: number): Promise<Json[]>;
+  getPull(number: number): Promise<Json>;
+  listReactions(number: number): Promise<Json[]>;
+}
+
+/** The write calls the Python RestGitHub makes, and nothing else. */
+export interface GitHubWriter extends GitHubReader {
+  createIssue(args: { title: string; body: string; labels: string[] }): Promise<Json>;
+  createComment(number: number, body: string): Promise<Json>;
+  addLabels(number: number, labels: readonly string[]): Promise<void>;
+  /** A label that is already gone is not an error. */
+  removeLabel(number: number, name: string): Promise<void>;
 }
 
 export interface GitHubClientOptions {
@@ -200,13 +213,14 @@ function asObjects(payload: unknown): Json[] {
   );
 }
 
-export class GitHubClient implements GitHubReader {
+export class GitHubClient implements GitHubWriter {
   readonly api: string;
   readonly budget: SubrequestBudget;
   private readonly repo: string;
   private readonly tokenProvider: () => Promise<string>;
   private readonly fetchImpl: FetchLike;
   private readonly scrubber: Scrubber;
+  private pagesRead = 0;
 
   constructor(options: GitHubClientOptions) {
     this.api = (options.api ?? GITHUB_API).replace(/\/+$/, "");
@@ -222,24 +236,71 @@ export class GitHubClient implements GitHubReader {
     return this.list("issues", params, "issues response was not a list", maxPages);
   }
 
+  get lastListPages(): number {
+    return this.pagesRead;
+  }
+
   async getIssue(number: number): Promise<Json> {
-    const { payload } = await this.once(this.url(`issues/${number}`));
+    return this.object(await this.once(this.url(`issues/${number}`)), "issue");
+  }
+
+  async getPull(number: number): Promise<Json> {
+    return this.object(await this.once(this.url(`pulls/${number}`)), "pull");
+  }
+
+  async listReactions(number: number): Promise<Json[]> {
+    return this.wholeList(`issues/${number}/reactions`, "reactions response was not a list");
+  }
+
+  async createIssue(args: { title: string; body: string; labels: string[] }): Promise<Json> {
+    const reply = await this.once(this.url("issues"), "POST", {
+      title: args.title,
+      body: args.body,
+      labels: args.labels,
+    });
+    return this.object(reply, "create-issue");
+  }
+
+  async createComment(number: number, body: string): Promise<Json> {
+    const reply = await this.once(this.url(`issues/${number}/comments`), "POST", { body });
+    return this.object(reply, "create-comment");
+  }
+
+  async addLabels(number: number, labels: readonly string[]): Promise<void> {
+    if (labels.length === 0) {
+      return;
+    }
+    await this.once(this.url(`issues/${number}/labels`), "POST", { labels: [...labels] });
+  }
+
+  async removeLabel(number: number, name: string): Promise<void> {
+    try {
+      await this.once(this.url(`issues/${number}/labels/${pyQuote(name)}`), "DELETE");
+    } catch (error) {
+      if (error instanceof GitHubError && error.status === 404) {
+        return;
+      }
+      throw error;
+    }
+  }
+
+  private object(reply: { payload: unknown }, what: string): Json {
+    const { payload } = reply;
     if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
-      throw new GitHubError(502, "GitHub HTTP 502: issue response was not an object");
+      throw new GitHubError(502, `GitHub HTTP 502: ${what} response was not an object`);
     }
     return payload as Json;
   }
 
   async listComments(number: number): Promise<Json[]> {
+    return this.wholeList(`issues/${number}/comments`, "comments response was not a list");
+  }
+
+  /** Every page, or a failure. Reading part of a thread would give a wrong lease. Python fails the same way. */
+  private async wholeList(suffix: string, notAList: string): Promise<Json[]> {
     const params = new URLSearchParams({ per_page: "100" });
-    const listing = await this.list(
-      `issues/${number}/comments`,
-      params,
-      "comments response was not a list",
-      MAX_PAGES,
-    );
+    const listing = await this.list(suffix, params, notAList, MAX_PAGES);
     if (listing.truncated) {
-      // Reading part of a thread would give a wrong lease. Python fails the same way.
       throw new GitHubError(502, "GitHub HTTP 502: stopped after 10 pages");
     }
     return listing.items;
@@ -259,11 +320,13 @@ export class GitHubClient implements GitHubReader {
     const items: Json[] = [];
     let next: string | null = this.url(suffix, params);
     let pages = 0;
+    this.pagesRead = 0;
     while (next !== null) {
       if (pages >= maxPages) {
         return { items, truncated: true };
       }
       pages += 1;
+      this.pagesRead = pages;
       const { payload, link } = await this.once(next);
       if (!Array.isArray(payload)) {
         throw new GitHubError(502, `GitHub HTTP 502: ${notAList}`);
@@ -278,7 +341,11 @@ export class GitHubClient implements GitHubReader {
     return { items, truncated: false };
   }
 
-  private async once(url: string): Promise<{ payload: unknown; link: string | null }> {
+  private async once(
+    url: string,
+    method: "GET" | "POST" | "DELETE" = "GET",
+    body?: unknown,
+  ): Promise<{ payload: unknown; link: string | null }> {
     const bearer = await this.tokenProvider();
     if (typeof bearer !== "string" || !bearer) {
       throw new GitHubError(0, "GitHub authentication did not return a token");
@@ -287,9 +354,10 @@ export class GitHubClient implements GitHubReader {
       fetch: this.fetchImpl,
       budget: this.budget,
       scrubber: this.scrubber,
-      method: "GET",
+      method,
       url,
       bearer,
+      body,
     });
     if (response.status < 200 || response.status > 299) {
       throw new GitHubError(response.status, safeError(this.scrubber, response.status, response.text));

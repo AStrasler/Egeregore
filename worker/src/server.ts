@@ -7,12 +7,15 @@ export const SERVER_VERSION = "0.1.0";
 
 const INSTRUCTIONS =
   "Egregore coordination tools for GitHub issues in AStrasler/Egeregore. " +
-  "This server is read-only: it lists tasks, reads one task and its lease, reads a task's comment history, " +
+  "It lists tasks, reads one task and its lease, reads a task's comment history, " +
   "lists owner-decision issues, and lists pinned specialist catalog entries. " +
-  "It does not claim, comment, label, merge, deploy, change settings, or record Decision: approve or Decision: reject. " +
+  "It also claims and renews a lease, posts progress, releases a task, opens a handoff issue, and asks Codex to review a pull request. " +
+  "Those writes only comment, label, and open handoff issues. " +
+  "It never merges, deploys, changes settings, or records Decision: approve or Decision: reject. " +
   "A lease is a comment convention, not a lock. A recorded Decision comment is not a verified approval.";
 
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, openWorldHint: true } as const;
+const WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true } as const;
 
 // The same envelope the Python server returns: { ok, result, error }.
 const envelopeSchema = z.object({
@@ -139,6 +142,87 @@ export function createServer(service: CoordinationService): McpServer {
       annotations: READ_ONLY,
     },
     async (args) => respond(service.getSpecialistCatalog(args)),
+  );
+
+  server.registerTool(
+    "claim_task",
+    {
+      description: "Claim a ready issue. The earliest live lease wins. A later agent is a conflict.",
+      inputSchema: z.object({ issue_number: z.number().int(), lease_hours: z.number().int().default(6) }),
+      outputSchema: envelopeSchema,
+      annotations: WRITE,
+    },
+    async ({ issue_number, lease_hours }) => respond(await service.claimTask(issue_number, lease_hours)),
+  );
+
+  server.registerTool(
+    "renew_lease",
+    {
+      description: "Renew the caller's live lease. The original claim comment id stays.",
+      inputSchema: z.object({
+        issue_number: z.number().int(),
+        lease_hours: z.number().int().default(6),
+        note: z.string().default(""),
+      }),
+      outputSchema: envelopeSchema,
+      annotations: WRITE,
+    },
+    async ({ issue_number, lease_hours, note }) =>
+      respond(await service.renewLease(issue_number, lease_hours, note)),
+  );
+
+  server.registerTool(
+    "release_task",
+    {
+      description:
+        "Release the caller's lease. status:done needs evidence, and a linked pull request must be merged and reviewed. A required pull request with no link is refused.",
+      inputSchema: z.object({ issue_number: z.number().int(), status: z.string(), reason: z.string() }),
+      outputSchema: envelopeSchema,
+      annotations: WRITE,
+    },
+    async ({ issue_number, status, reason }) => respond(await service.releaseTask(issue_number, status, reason)),
+  );
+
+  server.registerTool(
+    "post_progress",
+    {
+      description: "Post a progress comment. The caller must hold the live lease.",
+      inputSchema: z.object({ issue_number: z.number().int(), done: z.string(), next: z.string() }),
+      outputSchema: envelopeSchema,
+      annotations: WRITE,
+    },
+    async ({ issue_number, done, next }) => respond(await service.postProgress(issue_number, done, next)),
+  );
+
+  server.registerTool(
+    "handoff_task",
+    {
+      description:
+        "Open a handoff issue for another role and release the source lease. It does not grant access.",
+      inputSchema: z.object({
+        issue_number: z.number().int(),
+        to_agent: z.string(),
+        done_so_far: z.string(),
+        next_action: z.string(),
+        title: z.string().default(""),
+      }),
+      outputSchema: envelopeSchema,
+      annotations: WRITE,
+    },
+    async ({ issue_number, to_agent, done_so_far, next_action, title }) =>
+      respond(await service.handoffTask(issue_number, to_agent, done_so_far, next_action, title)),
+  );
+
+  server.registerTool(
+    "request_review",
+    {
+      description:
+        "Post one @codex review on an open pull request. Closed pulls, a repeat of the same head, and a fourth round are refused.",
+      inputSchema: z.object({ pull_number: z.number().int() }),
+      outputSchema: envelopeSchema,
+      annotations: WRITE,
+    },
+    async ({ pull_number }) => respond(await service.requestReview(pull_number)),
   );
 
   return server;

@@ -209,6 +209,26 @@ const READS: Array<[string, Record<string, unknown>]> = [
   ["get_owner_decisions", {}],
 ];
 
+const WRITES: Array<[string, Record<string, unknown>]> = [
+  ["claim_task", { issue_number: 1 }],
+  ["renew_lease", { issue_number: 1, note: "n" }],
+  ["release_task", { issue_number: 1, status: "ready", reason: "r" }],
+  ["post_progress", { issue_number: 1, done: "d", next: "n" }],
+  ["handoff_task", { issue_number: 1, to_agent: "codex", done_so_far: "d", next_action: "n" }],
+  ["request_review", { pull_number: 1 }],
+];
+
+/** The text fields each write tool accepts, so a canary can be put in each in turn. */
+const WRITE_TEXT: Array<[string, string, Record<string, unknown>]> = [
+  ["renew_lease", "note", { issue_number: 1 }],
+  ["release_task", "reason", { issue_number: 1, status: "ready" }],
+  ["post_progress", "done", { issue_number: 1, next: "n" }],
+  ["post_progress", "next", { issue_number: 1, done: "d" }],
+  ["handoff_task", "done_so_far", { issue_number: 1, to_agent: "codex", next_action: "n" }],
+  ["handoff_task", "next_action", { issue_number: 1, to_agent: "codex", done_so_far: "d" }],
+  ["handoff_task", "title", { issue_number: 1, to_agent: "codex", done_so_far: "d", next_action: "n" }],
+];
+
 describe("secret hygiene", () => {
   it("a failed mint does not echo the JWT or the private key", async () => {
     const hostile = new Hostile(key.pkcs8Pem);
@@ -357,7 +377,7 @@ describe("secret hygiene", () => {
             listComments: async () => {
               throw thrown;
             },
-          },
+          } as never,
           configProblems: [],
           now: () => NOW,
         });
@@ -425,9 +445,72 @@ describe("secret hygiene", () => {
       const channels = new Channels();
       const hostile = new Hostile(key.pkcs8Pem);
       const worker = createWorker({ fetch: hostile.fetch, now: () => NOW, api: API, resolveAgent: agentFromHeader });
-      for (const [name, args] of READS) channels.reply(await client(worker, values, "cursor").tool(name, args));
+      for (const [name, args] of [...READS, ...WRITES]) channels.reply(await client(worker, values, "cursor").tool(name, args));
       channels.done();
       expectClean(channels, planted, `settings ${label}`);
+    }
+  });
+
+  it("secret-shaped text sent to a write tool is refused and never posted", async () => {
+    const held = {
+      issues: [
+        { number: 1, title: "[Task]: one", state: "open", labels: [{ name: "type:task" }, { name: "status:in-progress" }, { name: "agent:cursor" }], body: "### Role\n\ncursor\n", html_url: `https://github.com/${REPO}/issues/1` },
+      ],
+      comments: {
+        "1": [
+          {
+            id: 1,
+            created_at: "2026-10-29T17:00:00Z",
+            user: { login: "egregore[bot]" },
+            body: "Agent: Cursor\n\n## Claim\nClaim-Agent: cursor\nClaimed-At: 2026-10-29T17:00:00Z\nLease-Expires: 2026-10-29T23:00:00Z\nTask: work\nData-Boundary: coordination-only\n",
+          },
+        ],
+      },
+    };
+    const github = new FakeGitHub({ dataset: held, now: () => NOW, publicKey: key.publicKey });
+    const worker = createWorker({ fetch: github.fetch, now: () => NOW, api: API, resolveAgent: agentFromHeader });
+    for (const [tool, field, rest] of WRITE_TEXT) {
+      for (const [name, value] of Object.entries(SHAPED)) {
+        const channels = new Channels();
+        // The caller holds a live lease, so the only thing that can stop the post is the secret check.
+        const reply = await client(worker, env(), "cursor").tool(tool, { ...rest, [field]: `before ${value} after` });
+        channels.reply(reply);
+        channels.done();
+        expect(reply.structuredContent.error?.code, `${tool}.${field} ${name}`).toBe("secret_rejected");
+        expectClean(channels, { [name]: value }, `${tool}.${field}`);
+      }
+    }
+    expect(github.writes, "a refused write reached GitHub").toHaveLength(0);
+    expect(github.calls.length, "the reads ran").toBeGreaterThan(0);
+  });
+
+  it("a write that GitHub refuses does not echo the installation token or secret-shaped text", async () => {
+    const shaped = Object.values(SHAPED).join(" ");
+    const dataset = {
+      issues: [
+        { number: 1, title: "[Task]: one", state: "open", labels: [{ name: "type:task" }, { name: "status:ready" }], body: "### Role\n\ncursor\n", html_url: `https://github.com/${REPO}/issues/1` },
+      ],
+      comments: { "1": [] },
+    };
+    for (const style of ["plain", "bearer"] as const) {
+      const github = new FakeGitHub({ dataset: structuredClone(dataset), now: () => NOW, publicKey: key.publicKey });
+      const options = github.options;
+      const token = `ghs_0001${"t".repeat(32)}`;
+      options.failWith = {
+        status: 500,
+        times: 3,
+        method: "POST",
+        match: /\/comments$/,
+        text: style === "bearer" ? `${shaped} Bearer ${token}\n${key.pkcs8Pem}` : shaped,
+      };
+      const channels = new Channels();
+      const worker = createWorker({ fetch: github.fetch, now: () => NOW, api: API, resolveAgent: agentFromHeader });
+      const reply = await client(worker, env(), "cursor").tool("claim_task", { issue_number: 1 });
+      channels.reply(reply);
+      channels.done();
+      expect(reply.structuredContent.error.code).toBe("github_error");
+      expect(github.writes.length, "the failed comment was the only write").toBe(1);
+      expectClean(channels, { ...pemPieces(key.pkcs8Pem), installationToken: token, ...SHAPED }, `write failure, ${style}`);
     }
   });
 });

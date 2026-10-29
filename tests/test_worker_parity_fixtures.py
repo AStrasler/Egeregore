@@ -32,6 +32,10 @@ def load_recorder():
     return module
 
 
+READ_TOOLS = {"get_tasks", "get_task", "get_task_history", "get_owner_decisions", "get_specialists"}
+WRITE_TOOLS = {"claim_task", "renew_lease", "release_task", "post_progress", "handoff_task", "request_review"}
+
+
 class WorkerParityFixturesTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -64,7 +68,43 @@ class WorkerParityFixturesTest(unittest.TestCase):
             {"get_tasks", "get_task", "get_task_history", "get_owner_decisions", "get_specialists"},
         )
 
-    def test_read_tool_list_matches_the_python_server(self) -> None:
+    def test_every_write_tool_is_exercised_by_a_story(self) -> None:
+        tools = {step["tool"] for story in self.committed["stories"] for step in story["steps"]}
+        self.assertLessEqual(WRITE_TOOLS, tools)
+
+    def test_every_write_tool_has_a_success_and_a_refusal_on_record(self) -> None:
+        for name in WRITE_TOOLS:
+            steps = [s for story in self.committed["stories"] for s in story["steps"] if s["tool"] == name]
+            self.assertTrue(any(s["expected"]["ok"] for s in steps), f"{name} has no recorded success")
+            self.assertTrue(any(not s["expected"]["ok"] for s in steps), f"{name} has no recorded refusal")
+
+    def test_a_refused_write_never_wrote(self) -> None:
+        # Refusals that the Python server makes before any post must stay writes-free in the Worker too.
+        writes = {"create_comment", "create_issue", "add_labels", "remove_label"}
+        for story in self.committed["stories"]:
+            for step in story["steps"]:
+                code = (step["expected"].get("error") or {}).get("code")
+                if code in {
+                    "invalid_input",
+                    "secret_rejected",
+                    "forbidden",
+                    "not_found",
+                    "not_claimable",
+                    "wrong_role",
+                    "lease_not_holder",
+                    "lease_expired",
+                    "not_done",
+                    "not_reviewable",
+                    "review_current",
+                    "review_pending",
+                    "review_duplicate",
+                    "review_same_head",
+                    "review_limit",
+                }:
+                    made = [call["op"] for call in step["calls"] if call["op"] in writes]
+                    self.assertEqual(made, [], f"{story['name']}: {step['tool']} {code} wrote {made}")
+
+    def test_tool_list_matches_the_python_server(self) -> None:
         import asyncio
         import sys
 
@@ -83,8 +123,9 @@ class WorkerParityFixturesTest(unittest.TestCase):
             async with Client(build_server(service)) as client:
                 return {tool.name for tool in (await client.list_tools()).tools}
 
-        read_tools = {case["tool"] for case in self.committed["cases"]}
-        self.assertTrue(read_tools <= asyncio.run(names()))
+        recorded = {tool["name"] for tool in self.committed["tools"]}
+        self.assertEqual(recorded, asyncio.run(names()))
+        self.assertEqual(recorded, READ_TOOLS | WRITE_TOOLS)
 
 
 if __name__ == "__main__":
