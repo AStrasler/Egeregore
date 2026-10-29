@@ -1281,7 +1281,7 @@ class RepoPolicyTests(unittest.TestCase):
         files = sorted(workflow_dir.glob("*.yml"))
         self.assertEqual(
             [path.name for path in files],
-            ["ci.yml", "issue-hygiene.yml", "lease-watch.yml"],
+            ["ci.yml", "issue-hygiene.yml", "lease-watch.yml", "pr-format.yml"],
         )
         for path in files:
             text = path.read_text(encoding="utf-8")
@@ -1306,7 +1306,8 @@ class RepoPolicyTests(unittest.TestCase):
                 self.assertIn(use, allowed_actions)
             permissions = permission_lines(text)
             self.assertIn("contents: read", permissions)
-            if path.name == "ci.yml":
+            if path.name in ("ci.yml", "pr-format.yml"):
+                # CI and the PR format check are read-only. The format check fails with a summary.
                 self.assertEqual(permissions, ["contents: read"])
             else:
                 self.assertEqual(permissions, ["contents: read", "issues: write"])

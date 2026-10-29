@@ -152,12 +152,21 @@ When the stop is a merge, deploy, credential, permission, visibility change, new
 | `CI` | Pull requests, and pushes to `main` | `contents: read` |
 | `Issue hygiene` | Issue opened or edited. A separate job runs when a comment starts with `Decision:` | `contents: read`, `issues: write` |
 | `Lease watch` | Daily at 12:17 UTC, or manual `workflow_dispatch` | `contents: read`, `issues: write` |
+| `PR format` | Pull request opened, edited, reopened, pushed to, or marked ready. Skips drafts and bot authors | `contents: read` |
 
 `workflow_dispatch` on lease watch reruns the flagger. Issue and lease workflows run the code on the default branch, so a pull request cannot change them until Aaron merges it. The cron is `17 12 * * *`. Phase 2 ran lease watch with `workflow_dispatch`, including Actions runs 40548511242, 40548792034, and 40549228229. The scheduled cron was not part of that test. Treat the schedule as configured, and expect GitHub to delay or skip a day. Reclaim from the comments either way. Since pull request #8 merged, every run prints one summary line with issues scanned, active, expired, and conflicts warned, including a run that only sees active leases.
 
 The hygiene job comments when required fields, the data-boundary checkbox, or a credential-like string are missing or present. It does not print the issue body. It can add `status:needs-owner`. It does not remove that label.
 
 A comment that starts with `Decision:` is a recorded decision when GitHub attributes it to `@AStrasler`, and nothing when another login writes it. The workflow posts that distinction and does not change labels. Attribution is not a verified authorization: an agent using Aaron's connected GitHub account can post as `@AStrasler`. This repository cannot tell those posts apart. Aaron verifies an owner action by merging, changing the setting, or moving the status label himself.
+
+### PR format check
+
+`.github/workflows/pr-format.yml` runs `scripts/pr_format.py` on every pull request that is not a draft and not from a bot. It requires text under `## What` and `## Why`. It also requires `## Verification` when the diff changes any file that is not Markdown (`.md` or `.markdown`). `## Risk` and `## Links` are optional. Headings must be level 2. Text inside a code fence or an HTML comment does not count, so an unfilled [pull request template](.github/PULL_REQUEST_TEMPLATE.md) fails. If the changed files cannot be listed, the check assumes code changed and asks for `## Verification`.
+
+It is read-only. It reads the event payload and `git diff`, calls no API, and posts no comment. A failure is a red job with the reasons in the job summary and in annotations. The summary never repeats the description. A comment step would need `pull-requests: write`, which no workflow here has, and a pull request from a fork gets a read-only token anyway. The description comes from the event file, never from a shell argument. Editing the description reruns the check.
+
+It is not a required check. Today a failing `pr-format` blocks nothing. To make it required, Aaron opens Settings → Rules → Rulesets → `Protect main`, turns on "Require status checks to pass", adds the check named `pr-format` (it appears in the list after one run), and saves. A draft or bot pull request shows the job as skipped, and GitHub counts a skipped job as passing. Agents then cannot merge a pull request whose description is incomplete until they fix it. This file does not change the ruleset.
 
 These workflows are sized for GitHub Pro's private-repo minute quota. See [SECURITY.md](SECURITY.md#switching-this-repository-to-private) before switching visibility. They do not assume unlimited public minutes.
 
