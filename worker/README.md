@@ -2,7 +2,7 @@
 
 This directory is the hosted Egregore MCP server, built up in small pull requests. The design is in [docs/cloudflare-hosting.md](../docs/cloudflare-hosting.md). The local Python server in `mcp/` stays the working server until the later pull requests land.
 
-**Status: not deployed and closed.** Merging this directory uploads a Worker *version* (Workers Builds runs `versions upload`) and deploys nothing. Even when a version is deployed later, every coordination tool answers `unauthenticated`, because there is no caller authentication yet. That holds for the write tools too: until the bearer-token pull request lands, none of them can reach GitHub.
+**Status: not deployed and closed.** Merging this directory uploads a Worker *version* (Workers Builds runs `versions upload`) and deploys nothing. Every tool needs a bearer token that matches a hashed record in the `EGREGORE_AGENT_TOKENS` secret. No such secret is set, so even if a version were deployed, every tool would answer `unauthenticated` and none could reach GitHub. Aaron sets the secret himself. See "Caller authentication" below.
 
 ## Tools
 
@@ -21,19 +21,70 @@ This directory is the hosted Egregore MCP server, built up in small pull request
 | `request_review` | the pull request and its comments; then one `@codex review` comment | `request_review` |
 | `ping` | nothing (kept from the scaffold; safe to remove) | none |
 
-The write tools follow the Python server's order of reads, guards and writes step for step, so a refusal makes no write and a half-finished call leaves the same trace. Nothing merges, closes or approves anything. They are marked as writes (`readOnlyHint: false`, `destructiveHint: false`). With no caller identified they answer `unauthenticated` before any GitHub call, and with no GitHub App settings they answer `unconfigured`.
+The write tools follow the Python server's order of reads, guards and writes step for step, so a refusal makes no write and a half-finished call leaves the same trace. Nothing merges, closes or approves anything. They are marked as writes (`readOnlyHint: false`, `destructiveHint: false`). With no valid token they answer `unauthenticated` before any GitHub call, with a valid token that lacks the permission, tool or repository they answer `forbidden`, and with no GitHub App settings they answer `unconfigured`.
 
 Every tool returns the same `{ok, result, error}` envelope as the Python server, as `structuredContent` and as indent-2 JSON text. Envelope errors do not set `isError`, as in Python.
 
 ## Layout
 
 - `wrangler.jsonc`: Worker `egeregore`, `workers_dev: false`, `preview_urls: false`, no routes, no bindings, no vars, no secrets.
-- `src/index.ts`: the Worker. Stateless `createMcpHandler` at `/mcp`. Builds a fresh service, GitHub client and subrequest budget per request. `resolveAgent` is the seam the auth pull request fills; today it returns `null`.
+- `src/index.ts`: the Worker. Stateless `createMcpHandler` at `/mcp`. Builds a fresh service, GitHub client and subrequest budget per request. Authenticates the bearer token, passes the caller's record to the access gate, and takes the agent from it.
+- `src/auth.ts`: bearer-token lookup, the `EGREGORE_AGENT_TOKENS` parser, the permission model, and the safe `owner/name` check. It imports nothing, so the local scripts load the same code.
+- `scripts/generate-agent-token.mjs`, `scripts/check-agent-tokens.mjs`: make a token and its record, and check a config. Local and offline.
 - `src/github-app.ts`: GitHub App auth with WebCrypto. RS256 JWT, PKCS#1 to PKCS#8 conversion, an installation token limited to the `Egeregore` repository with `issues:write`, `pull_requests:read`, `metadata:read`. The token is checked after it is minted and refused if it is broader. Cached per isolate.
 - `src/github.ts`: the GitHub REST client. Pagination that cannot leave the API origin, no redirects (so the bearer token never goes to another host), secret scrubbing, and a subrequest budget.
 - `src/coordination.ts`: the comment-marker and lease rules, ported from `scripts/coordination.py` and `mcp/egregore_mcp/comments.py`. `src/pycompat.ts` holds the Python-versus-JavaScript string details (`strip`, `splitlines`, `\s`, `\d`, `fromisoformat`).
 - `src/service.ts`, `src/specialists.ts`, `src/server.ts`: the five read tools and the six write tools. `src/comments.ts` builds the claim, renewal, progress, release, handoff and conflict comments. `src/reviews.ts` reads the Codex review state of a pull request. `src/rules.ts` holds the field and done-gate rules that the write tools share.
+- `test/bearer-auth.test.ts`: the token layer end to end through the Worker. `test/parity/repo-names.json` and `test/parity/auth-model.json` are shared with Python tests (`tests/test_auth_model_parity.py`), so both sides refuse `../..` and agree on which tool needs which permission. The Python server has no token layer: it is one agent over stdio.
 - `test/`: Vitest tests that run inside the Workers runtime. No network, no credentials; RSA keys are generated at test time.
+
+## Caller authentication
+
+Each agent gets its own bearer token. The Worker stores only the SHA-256 of each token, in the secret `EGREGORE_AGENT_TOKENS`, and the agent comes from the matching record. No tool takes an `agent` argument, and an extra one is ignored.
+
+The secret is a JSON array. Each record says what one token may do:
+
+```json
+[
+  {
+    "sha256": "<64 hex characters, from the generator>",
+    "agent": "cursor",
+    "permissions": ["read", "write", "review"],
+    "repos": ["AStrasler/Egeregore"],
+    "tools": ["*"],
+    "label": "cursor on the laptop"
+  }
+]
+```
+
+| Field | Rule |
+| --- | --- |
+| `sha256` | 64 hex characters. Unique in the array. |
+| `agent` | `chatgpt`, `grokbot`, `cursor` or `codex`. Never `aaron`. |
+| `permissions` | A non-empty list from `read`, `write`, `review`. One does not imply another. |
+| `repos` | 1 to 16 explicit `owner/name` entries. No wildcard. Empty, `.` and `..` segments are refused. |
+| `tools` | `["*"]`, or tool names from the table above. An unknown name is an error. |
+| `label` | Optional, up to 80 characters, for people only. |
+
+Permissions: `read` is `ping`, `get_tasks`, `get_task`, `get_task_history`, `get_owner_decisions` and `get_specialists`. `write` is `claim_task`, `renew_lease`, `release_task`, `post_progress` and `handoff_task`. `review` is `request_review`.
+
+What the Worker answers, in order:
+
+1. `unauthenticated` when the secret is unset or invalid, or the header is missing, malformed or does not match a record. The answer is the same in every case, so it says nothing about which part failed.
+2. `forbidden` when the token's tool list excludes the tool, when it lacks the permission, or when the configured `EGREGORE_REPO` is not in its `repos` (or is not a plain `owner/name`).
+3. `unconfigured` when the GitHub App settings are missing.
+
+One bad record rejects the whole array, so a typo cannot leave a token with more access than intended. A refused call makes no GitHub call. `initialize` and `tools/list` return only fixed server metadata and need no token.
+
+### Setup (Aaron does this; nothing here sets a secret)
+
+1. Make a token per agent, on your own machine: `node worker/scripts/generate-agent-token.mjs --agent cursor`. Add `--permissions read,review`, `--repos owner/name` or `--tools get_tasks,get_task` to narrow it. The token prints once. The record holds only its hash.
+2. Hand each token to that agent's client config. Do not commit it or paste it into chat.
+3. Put the records into one JSON array in a file outside the repository, and check it: `node --experimental-strip-types worker/scripts/check-agent-tokens.mjs < tokens.json`. Add `--verify` with `TOKEN` set to test one token. The checker prints the agent and counts, never a token or a hash.
+4. Set the array as the Worker secret `EGREGORE_AGENT_TOKENS` in the Cloudflare dashboard or with `wrangler secret put`. Setting it is Aaron's step. Nothing in this repository or its CI sets it.
+5. To rotate, add a record for a new token, switch the client, then remove the old record. To revoke, remove the record.
+
+The token check is one SHA-256 and a loop over at most 32 digests, so it stays far inside the 10 ms Free-plan CPU limit. The parsed config is cached per isolate.
 
 ## Free-plan limits
 
