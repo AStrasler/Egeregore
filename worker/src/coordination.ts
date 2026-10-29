@@ -28,6 +28,38 @@ export const ALLOWED_AGENTS: ReadonlySet<string> = new Set(["chatgpt", "grokbot"
 export const OWNER_LOGIN = "AStrasler";
 export const STALL_LABEL = "stall:flagged";
 export const MAX_LEASE_MS = 24 * 60 * 60 * 1000;
+export const BOUNDARY_SENTENCE =
+  "Coordination only. No project data, health data, credentials, " +
+  "or another person's personal information.";
+export const TASK_ROLES: ReadonlySet<string> = new Set([...ALLOWED_AGENTS, "any"]);
+export const STATUS_LABELS: readonly string[] = [
+  "status:ready",
+  "status:claimed",
+  "status:in-progress",
+  "status:blocked",
+  "status:needs-review",
+  "status:needs-owner",
+  "status:done",
+];
+const PRIORITIES: ReadonlySet<string> = new Set(["low", "normal", "high", "urgent"]);
+const RISKS: ReadonlySet<string> = new Set(["none", "auth or permissions", "data handling", "deployment", "other"]);
+const EVIDENCE_RESULTS: ReadonlySet<string> = new Set(["progress", "blocked", "ready-for-review", "complete"]);
+const DECISION_TYPES: ReadonlySet<string> = new Set([
+  "merge",
+  "deployment",
+  "credentials",
+  "permission or access",
+  "new project",
+  "repository setting",
+  "other",
+]);
+const REQUIRED_SECTIONS: Readonly<Record<string, readonly string[]>> = {
+  task: ["Project", "Role", "Priority", "Outcome", "Context", "Out of scope", "Approval needed"],
+  handoff: ["Project", "From", "To", "Related issue", "Done so far", "Next action", "Access"],
+  evidence: ["Project", "Related issue", "What happened", "Links", "Result"],
+  review: ["Project", "Pull request", "What to verify", "Risk"],
+  decision: ["Project", "Decision type", "Request", "Why Aaron"],
+};
 
 const D = "\\p{Nd}";
 const SECRET_SOURCES: readonly string[] = [
@@ -49,6 +81,12 @@ const EXPIRES_RE = new RegExp(
 const CLAIM_AGENT_RE = new RegExp(`^Claim-Agent:[${PY_WS}]*([A-Za-z]+)[${PY_WS}]*$`, "u");
 const RELEASE_RE = new RegExp(`^Lease-Release:[${PY_WS}]*([A-Za-z]+)[${PY_WS}]*$`, "u");
 const DECISION_RE = new RegExp(`^Decision:[${PY_WS}]*(approve|reject)${WORD_END}`, "iu");
+const BOUNDARY_LINE_RE = new RegExp(`^Data-Boundary:[${PY_WS}]*coordination-only[${PY_WS}]*$`, "iu");
+const CHECKED_BOX_RE = /\[[xX]\]/u;
+
+export function looksLikeSecret(body: string): boolean {
+  return SECRET_SOURCES.some((source) => new RegExp(source, "u").test(body));
+}
 
 export function redactText(text: string): string {
   let cleaned = text;
@@ -365,4 +403,175 @@ export function agentLine(body: string): string | null {
     }
   }
   return null;
+}
+
+// ---- Field check (scripts/coordination.py validate_issue) ----
+
+export interface IssueCheck {
+  ok: boolean;
+  kind: string | null;
+  problems: string[];
+  needsOwner: boolean;
+  secret: boolean;
+}
+
+function present(value: string | null | undefined): boolean {
+  const text = pyStrip(value ?? "");
+  return text !== "" && text !== "_No response_";
+}
+
+/** checked, unchecked, or missing. */
+function boundaryState(body: string): "checked" | "unchecked" | "missing" {
+  let sawSentence = false;
+  for (const line of splitNewlines(body)) {
+    if (BOUNDARY_LINE_RE.test(pyStrip(line))) {
+      return "checked";
+    }
+    if (line.includes(BOUNDARY_SENTENCE)) {
+      sawSentence = true;
+      if (CHECKED_BOX_RE.test(line)) {
+        return "checked";
+      }
+    }
+  }
+  return sawSentence ? "unchecked" : "missing";
+}
+
+export function validateIssue(title: string, body: string): IssueCheck {
+  const text = body || "";
+  const kind = kindFromTitle(title || "");
+  const parsed = sectionMap(text);
+  const problems: string[] = [];
+  let needsOwner = false;
+
+  const boundary = boundaryState(text);
+  if (boundary === "missing") {
+    problems.push("Data boundary confirmation is missing.");
+  } else if (boundary === "unchecked") {
+    problems.push("Data boundary checkbox is unchecked.");
+  }
+
+  if (looksLikeSecret(text)) {
+    problems.push(
+      "A credential-like string is present. Remove it and rotate the credential. " +
+        "The value was not copied into this comment. This repository is public, so a " +
+        "saved value may already be exposed.",
+    );
+    needsOwner = true;
+  }
+
+  if (kind === null) {
+    problems.push("Title must start with [Task]:, [Handoff]:, [Evidence]:, [Review]:, or [Decision]:.");
+  } else {
+    for (const heading of REQUIRED_SECTIONS[kind]) {
+      if (!present(parsed.get(heading))) {
+        problems.push(`${heading} is empty.`);
+      }
+    }
+  }
+
+  const project = firstLine(parsed.get("Project"));
+  if (project === "other" && !present(parsed.get("Project slug"))) {
+    problems.push("Project slug is required when Project is other.");
+  }
+
+  if (kind === "task" && present(parsed.get("Role"))) {
+    const role = firstLine(parsed.get("Role")).toLowerCase();
+    if (!TASK_ROLES.has(role)) {
+      problems.push("Role must be chatgpt, grokbot, cursor, codex, aaron, or any.");
+    }
+  }
+  if (kind === "task" && present(parsed.get("Priority"))) {
+    const priority = firstLine(parsed.get("Priority")).toLowerCase();
+    if (!PRIORITIES.has(priority)) {
+      problems.push("Priority must be low, normal, high, or urgent.");
+    }
+  }
+  if (kind === "task" && present(parsed.get("Approval needed"))) {
+    const approval = firstLine(parsed.get("Approval needed")).toLowerCase();
+    if (approval.startsWith("yes")) {
+      needsOwner = true;
+    } else if (!approval.startsWith("no")) {
+      problems.push("Approval needed must start with yes or no.");
+    }
+  }
+
+  if (kind === "handoff") {
+    for (const heading of ["From", "To"]) {
+      if (!present(parsed.get(heading))) {
+        continue;
+      }
+      const agent = firstLine(parsed.get(heading)).toLowerCase();
+      if (!ALLOWED_AGENTS.has(agent)) {
+        problems.push(`${heading} must name chatgpt, grokbot, cursor, codex, or aaron.`);
+      }
+    }
+    const access = parsed.get("Access") || "";
+    if (present(access) && !access.toLowerCase().includes("does not grant")) {
+      problems.push("Access must say that the handoff does not grant access.");
+    }
+  }
+
+  if (kind === "review" && present(parsed.get("Risk"))) {
+    const risk = firstLine(parsed.get("Risk")).toLowerCase();
+    if (!RISKS.has(risk)) {
+      problems.push("Risk must be none, auth or permissions, data handling, deployment, or other.");
+    }
+  }
+
+  if (kind === "evidence" && present(parsed.get("Result"))) {
+    const result = firstLine(parsed.get("Result")).toLowerCase();
+    if (!EVIDENCE_RESULTS.has(result)) {
+      problems.push("Result must be progress, blocked, ready-for-review, or complete.");
+    }
+  }
+
+  if (kind === "decision") {
+    needsOwner = true;
+    if (present(parsed.get("Decision type"))) {
+      const decisionType = firstLine(parsed.get("Decision type")).toLowerCase();
+      if (!DECISION_TYPES.has(decisionType)) {
+        problems.push("Decision type is not a known value.");
+      }
+    }
+  }
+
+  return { ok: problems.length === 0, kind, problems, needsOwner, secret: looksLikeSecret(text) };
+}
+
+// ---- Overlapping-claim note (scripts/coordination.py lease_conflict_*) ----
+
+export function currentLeaseConflicts(conflicts: readonly string[]): string[] {
+  return conflicts.filter((item) => item.includes(" holds the lease"));
+}
+
+/** Dedup key for one hold. Renewals keep the claim id; a later hold does not. */
+export function leaseConflictMarker(state: LeaseState): string {
+  const relevant = currentLeaseConflicts(state.conflicts);
+  return `<!-- egregore-lease-conflict:${state.leaseId || "none"}:${state.agent ?? ""}:${relevant.join(" | ")} -->`;
+}
+
+/** True when this hold's overlap is not already noted in the thread. */
+export function conflictCommentNeeded(comments: readonly Json[], state: LeaseState): boolean {
+  if (state.status !== "active" || currentLeaseConflicts(state.conflicts).length === 0) {
+    return false;
+  }
+  const marker = leaseConflictMarker(state);
+  return !comments.some((comment) => textOrEmpty(comment.body).includes(marker));
+}
+
+export function leaseConflictComment(state: LeaseState): string {
+  const when = state.expires !== null ? stamp(state.expires) : "unknown";
+  const lines = [
+    leaseConflictMarker(state),
+    "",
+    `Overlapping claim ignored. ${state.agent === null ? "None" : state.agent} still holds the lease until ${when}.`,
+    "GitHub comments are not a lock. A later claim does not replace an earlier live lease.",
+    "The later agent stops. Do not open a second branch or pull request for this task.",
+  ];
+  for (const item of currentLeaseConflicts(state.conflicts)) {
+    lines.push(`- ${item}`);
+  }
+  lines.push("", "This workflow does not claim the issue.");
+  return lines.join("\n") + "\n";
 }

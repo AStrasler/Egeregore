@@ -99,7 +99,7 @@ export function createWorker(overrides: Partial<Deps> = {}): Worker {
         token: () => auth.token(budget),
       });
     }
-    return new CoordinationService({ agent, github, configProblems: problems, now: deps.now });
+    return new CoordinationService({ agent, github, configProblems: problems, now: deps.now, repo });
   }
 
   return {
