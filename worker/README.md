@@ -2,7 +2,7 @@
 
 This directory is the hosted Egregore MCP server, built up in small pull requests. The design is in [docs/cloudflare-hosting.md](../docs/cloudflare-hosting.md). The local Python server in `mcp/` stays the working server until the later pull requests land.
 
-**Status: not deployed and closed.** Merging this directory uploads a Worker *version* (Workers Builds runs `versions upload`) and deploys nothing. Every tool needs a bearer token that matches a hashed record in the `EGREGORE_AGENT_TOKENS` secret. No such secret is set, so even if a version were deployed, every tool would answer `unauthenticated` and none could reach GitHub. Aaron sets the secret himself. See "Caller authentication" below.
+**Status: not deployed and closed.** Merging this directory uploads a Worker *version* (Workers Builds runs `versions upload`) and deploys nothing. Every tool needs a bearer token that matches a hashed record in the `EGREGORE_AGENT_TOKENS` secret. No such secret is set, so even if a version were deployed, every tool would answer `unauthenticated` and none could reach GitHub. The release, including the secrets, is [docs/DEPLOY-RUNBOOK.md](../docs/DEPLOY-RUNBOOK.md): Egregore stages them from its box and Aaron approves the release. See "Caller authentication" below.
 
 ## Tools
 
@@ -76,13 +76,16 @@ What the Worker answers, in order:
 
 One bad record rejects the whole array, so a typo cannot leave a token with more access than intended. A refused call makes no GitHub call. `initialize` and `tools/list` return only fixed server metadata and need no token.
 
-### Setup (Aaron does this; nothing here sets a secret)
+### Setup (the steps are in the runbook; nothing in this repository sets a secret)
 
-1. Make a token per agent, on your own machine: `node worker/scripts/generate-agent-token.mjs --agent cursor`. Add `--permissions read,review`, `--repos owner/name` or `--tools get_tasks,get_task` to narrow it. The token prints once. The record holds only its hash.
-2. Hand each token to that agent's client config. Do not commit it or paste it into chat.
-3. Put the records into one JSON array in a file outside the repository, and check it: `node --experimental-strip-types worker/scripts/check-agent-tokens.mjs < tokens.json`. Add `--verify` with `TOKEN` set to test one token. The checker prints the agent and counts, never a token or a hash.
-4. Set the array as the Worker secret `EGREGORE_AGENT_TOKENS` in the Cloudflare dashboard or with `wrangler secret put`. Setting it is Aaron's step. Nothing in this repository or its CI sets it.
-5. To rotate, add a record for a new token, switch the client, then remove the old record. To revoke, remove the record.
+[docs/DEPLOY-RUNBOOK.md](../docs/DEPLOY-RUNBOOK.md) is the procedure. In short, and all from Egregore's box:
+
+1. `provision-agent-tokens.mjs` makes a token per agent (through `generate-agent-token.mjs`), checks the records with the Worker's own parser, and writes the raw tokens to an owner-only file outside the repository and the hashes to a second file. It prints no token. Narrow a token with a plan file: `permissions`, `repos`, `tools`. To make one token by hand, `node worker/scripts/generate-agent-token.mjs --agent cursor` prints it once.
+2. `check-agent-tokens.mjs < records.json` checks the array. Add `--verify` with `TOKEN` set to test one token.
+3. `wrangler versions secret bulk` stages `EGREGORE_AGENT_TOKENS`, the App key and the App ID on a new version that is not live. Do not use `wrangler secret put`, which deploys at once. Nothing in this repository or its CI sets a secret.
+4. Aaron's explicit say-so promotes the version and turns on `workers.dev`. `smoke-test.mjs` then checks the live Worker against a test issue.
+5. Aaron hands each token to its client. Do not commit it or paste it into chat.
+6. To rotate, add a record for a new token, switch the client, then remove the old record. To revoke, remove the record. Either takes effect only when the new version is promoted.
 
 The token check is one SHA-256 and a loop over at most 32 digests, so it stays far inside the 10 ms Free-plan CPU limit. The parsed config is cached per isolate.
 

@@ -50,6 +50,7 @@ The MCP server also exposes a read-only `get_specialists` catalog for six pinned
 | [docs/DOC-RULES.md](docs/DOC-RULES.md) | The document checker: rules for credential-shaped strings, health readings, personal paths and emails, and role names; how to run it and add a rule |
 | [docs/SPECIALISTS.md](docs/SPECIALISTS.md) | Pinned specialist-agent catalog from the `AStrasler/agents` fork and client-loading boundaries |
 | [docs/cloudflare-hosting.md](docs/cloudflare-hosting.md) | Design for hosting Egregore on Cloudflare Workers Free: stateless TypeScript server, per-agent tokens, threat model, no-auto-deploy build settings, and the PR sequence. Nothing is deployed |
+| [docs/DEPLOY-RUNBOOK.md](docs/DEPLOY-RUNBOOK.md) | Step-by-step release of the Cloudflare Worker from Egregore's own box: tokens, secrets, Aaron's sign-off, smoke test, client hand-off, rollback and rotation. Free plan only. Nothing is deployed |
 | [docs/phase5-live-test-plan.md](docs/phase5-live-test-plan.md) | Live checks for the GitHub App, after Aaron creates it. Not run from this repo |
 | [ONBOARDING.md](ONBOARDING.md) | How to add a project such as WHOOP Lens or Weather Intelligence without sharing its data |
 
