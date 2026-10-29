@@ -8,5 +8,7 @@
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": false,
   "preview_urls": false,
+  // Needed by `wrangler preview` in branch builds. Preview URLs stay off.
+  "previews": {},
   "observability": { "enabled": false }
 }
