@@ -1483,6 +1483,22 @@ class HandoffLifecycleTests(unittest.TestCase):
         # Back in flag mode the same thread asks for nothing.
         self.assertEqual(self.plan(handoff_issue(1, "fyi", 20), noted).outcome, "none")
 
+    def test_an_fyi_handoff_with_evidence_is_left_for_a_person_even_in_close_mode(self) -> None:
+        evidence = [comment("Agent: Cursor\n\n## Evidence\nShipped.", NOW - timedelta(days=20), 1)]
+        for mode in ("flag", "close"):
+            plan = self.plan(handoff_issue(1, "fyi", 40), evidence, mode=mode)
+            self.assertEqual((plan.outcome, plan.comment, plan.close), ("none", None, False), mode)
+
+    def test_the_expiry_note_does_not_restart_the_stall_clock(self) -> None:
+        issue = handoff_issue(1, "fyi", 20)
+        first = coord.scan_issue(issue, [], NOW)
+        bodies = [step.body for step in first.steps if step.kind == "comment"]
+        self.assertEqual(len(bodies), 2)
+        posted = [comment(body, NOW - timedelta(days=2), index + 1) for index, body in enumerate(bodies)]
+        # Four days on, nothing new was said by anyone. No second stall flag, no second expiry note.
+        later = coord.scan_issue(issue, posted, NOW + timedelta(days=4))
+        self.assertEqual([step.counts for step in later.steps if step.kind == "comment"], [])
+
 
 class ScanThenApplyTests(unittest.TestCase):
     run_watch = LeaseWatchSummaryTests.run_watch

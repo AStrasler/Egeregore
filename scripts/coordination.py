@@ -912,7 +912,8 @@ def stall_reason(labels: Sequence[str]) -> str | None:
 def latest_unstalled_activity(created_at: datetime, comments: Sequence[Mapping[str, object]]) -> datetime:
     latest = created_at
     for comment in comments:
-        if "<!-- egregore-stall:" in str(comment.get("body") or ""):
+        body = str(comment.get("body") or "")
+        if "<!-- egregore-stall:" in body or "<!-- egregore-handoff-expiry:" in body:
             continue
         stamp = try_parse_time(str(comment.get("created_at") or ""))
         if stamp is not None and stamp > latest:
@@ -1061,6 +1062,8 @@ def handoff_plan(
     activity = latest_handoff_activity(created_at, comments)
     if now - activity < HANDOFF_EXPIRY:
         return HandoffPlan("none", "within the 14-day window")
+    if handoff_has_evidence(comments):
+        return HandoffPlan("none", "has evidence; a person decides")
     intent = handoff_intent(body)
     untouched = all(is_workflow_comment(str(comment.get("body") or "")) for comment in comments)
     if intent == "fyi" or untouched:
@@ -1084,8 +1087,6 @@ def handoff_plan(
             "A newer comment starts a new 14-day window.",
         ]
         return HandoffPlan("expire", "idle for 14 days with nothing owed", "\n".join(lines) + "\n", closing)
-    if handoff_has_evidence(comments):
-        return HandoffPlan("none", "has evidence; a person decides")
     return HandoffPlan("hold", "picked up without evidence stays open for a person")
 
 
