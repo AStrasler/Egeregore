@@ -13,6 +13,8 @@ import urllib.parse
 import urllib.request
 from typing import Callable, Mapping
 
+from egregore_mcp.redaction import redact_secrets
+
 
 class GitHubError(Exception):
     def __init__(self, status: int, message: str):
@@ -190,7 +192,7 @@ class RestGitHub:
     def _scrub(self, text: str) -> str:
         for secret in sorted(self._secrets, key=len, reverse=True):
             text = text.replace(secret, "[redacted]")
-        return text
+        return redact_secrets(text)
 
     def _next_link(self, header: str | None) -> str | None:
         if not header:

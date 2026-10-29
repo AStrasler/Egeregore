@@ -84,7 +84,7 @@ REQUIRED_SECTIONS = {
 }
 
 SECRET_PATTERNS = (
-    re.compile(r"ghp_[A-Za-z0-9]{20,}"),
+    re.compile(r"gh[pousr]_[A-Za-z0-9]{20,}"),
     re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
@@ -244,10 +244,16 @@ def looks_like_secret(body: str) -> bool:
     return any(pattern.search(body) for pattern in SECRET_PATTERNS)
 
 
-def redact(text: str) -> str:
+def redact_secrets(text: str) -> str:
+    """Replace every secret-shaped run in `text`. The Worker's redactText is the same list."""
     cleaned = text
     for pattern in SECRET_PATTERNS:
         cleaned = pattern.sub("[redacted]", cleaned)
+    return cleaned
+
+
+def redact(text: str) -> str:
+    cleaned = redact_secrets(text)
     first = cleaned.strip().splitlines()
     return (first[0] if first else "gh api failed")[:300]
 
