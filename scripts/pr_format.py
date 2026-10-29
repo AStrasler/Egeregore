@@ -37,8 +37,14 @@ _COMMENT = re.compile(r"<!--.*?(?:-->|\Z)", re.DOTALL)
 _WORD = re.compile(r"[^\W_]")
 
 
+_CODE_SPAN = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)")
+
+
 def _strip_comments(line: str, in_comment: bool) -> tuple[str, bool]:
-    """Remove HTML comment text from one line. Returns the rest and whether a comment is still open."""
+    """Remove HTML comment text from one line. Returns the rest and whether a comment is still open.
+
+    A comment opener inside an inline code span on one line is literal text.
+    """
     kept: list[str] = []
     pos = 0
     while pos < len(line):
@@ -48,14 +54,22 @@ def _strip_comments(line: str, in_comment: bool) -> tuple[str, bool]:
                 return "".join(kept), True
             pos = end + 3
             in_comment = False
-        else:
-            start = line.find("<!--", pos)
-            if start < 0:
-                kept.append(line[pos:])
-                break
-            kept.append(line[pos:start])
-            pos = start + 4
-            in_comment = True
+            continue
+        start = line.find("<!--", pos)
+        if start < 0:
+            kept.append(line[pos:])
+            break
+        span = _CODE_SPAN.search(line, pos)
+        while span and span.end() <= start:
+            span = _CODE_SPAN.search(line, span.end())
+        if span and span.start() < start:
+            # The opener sits inside a code span: keep the span as text and look past it.
+            kept.append(line[pos : span.end()])
+            pos = span.end()
+            continue
+        kept.append(line[pos:start])
+        pos = start + 4
+        in_comment = True
     return "".join(kept), in_comment
 
 

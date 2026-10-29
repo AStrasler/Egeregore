@@ -82,6 +82,26 @@ class ParseSectionsTests(unittest.TestCase):
         self.assertEqual(list(pf.parse_sections("<!-- ``` -->\n## What\ntext\n")), ["what"], "a fence marker in a comment is hidden")
         self.assertEqual(list(pf.parse_sections("## What\n<!-- never closed\n## Why\ntext\n")), ["what"])
 
+    def test_a_comment_opener_in_an_inline_code_span_is_literal(self) -> None:
+        body = "## What\nTreat `<!--` as a comment opener.\n\n## Why\nreason\n\n## Verification\nran it\n"
+        self.assertEqual(list(pf.parse_sections(body)), ["what", "why", "verification"])
+        self.assertEqual(problems(body, CODE), [])
+        double = "## What\nWrite ``<!-- x`` to open.\n## Why\nreason\n"
+        self.assertEqual(list(pf.parse_sections(double)), ["what", "why"])
+        self.assertIn("`<!--`", pf.parse_sections(body)["what"])
+
+    def test_a_real_comment_next_to_a_code_span_is_still_hidden(self) -> None:
+        body = "## What\nUse `code` <!-- hidden\n## Why\nhidden -->\nafter\n## Why\nreason\n"
+        sections = pf.parse_sections(body)
+        self.assertEqual(sections["what"].split(), ["Use", "`code`", "after"])
+        self.assertEqual(sections["why"], "reason")
+        mixed = "## What\n`a` <!-- c --> `b`\n"
+        self.assertEqual(pf.parse_sections(mixed)["what"].split(), ["`a`", "`b`"])
+
+    def test_unmatched_backticks_do_not_protect_a_comment(self) -> None:
+        body = "## What\nstray ` backtick <!-- hidden\n## Why\nhidden\n-->\n"
+        self.assertEqual(list(pf.parse_sections(body)), ["what"])
+
     def test_a_comment_in_a_code_fence_is_literal_text(self) -> None:
         body = "## What\n```\n<!--\n```\n## Why\nreason\n"
         self.assertEqual(list(pf.parse_sections(body)), ["what", "why"])
