@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "purpose": "Read-only pointers to the specialist library. No prompt bodies are copied.",
+  "fork_repository": "AStrasler/agents",
+  "fork_commit": "33e26871c429a6ec75f4706dd08ece75347368cb",
+  "fork_pr": "https://github.com/AStrasler/agents/pull/1",
+  "upstream_repository": "wshobson/agents",
+  "upstream_commit": "0874a27b17a22e2b7c2e2bcd725768e0803cad06",
+  "entries": [
+    {
+      "id": "code-reviewer",
+      "kind": "agent",
+      "role": "code-reviewer",
+      "plugin": "comprehensive-review",
+      "path": "plugins/comprehensive-review/agents/code-reviewer.md"
+    },
+    {
+      "id": "code-review-excellence",
+      "kind": "skill",
+      "role": "code-reviewer",
+      "plugin": "developer-essentials",
+      "path": "plugins/developer-essentials/skills/code-review-excellence/SKILL.md"
+    },
+    {
+      "id": "python-testing-patterns",
+      "kind": "skill",
+      "role": "test-writer",
+      "plugin": "python-development",
+      "path": "plugins/python-development/skills/python-testing-patterns/SKILL.md"
+    },
+    {
+      "id": "docs-architect",
+      "kind": "agent",
+      "role": "docs-writer",
+      "plugin": "documentation-generation",
+      "path": "plugins/documentation-generation/agents/docs-architect.md"
+    },
+    {
+      "id": "architecture-decision-records",
+      "kind": "skill",
+      "role": "docs-writer",
+      "plugin": "documentation-generation",
+      "path": "plugins/documentation-generation/skills/architecture-decision-records/SKILL.md"
+    },
+    {
+      "id": "ponytail",
+      "kind": "skill",
+      "role": "code-implementer",
+      "plugin": "ponytail",
+      "path": "skills/ponytail/SKILL.md",
+      "source_repository": "DietrichGebert/ponytail",
+      "source_commit": "09c434ab73ca43761c5d8b0c5d341926c2fba710"
+    }
+  ]
+}

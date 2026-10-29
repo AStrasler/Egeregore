@@ -14,6 +14,7 @@ from mcp.server import MCPServer
 
 from egregore_mcp import __version__
 from egregore_mcp.service import CoordinationService, service_from_env
+from egregore_mcp.specialists import get_specialists as resolve_specialists
 
 INSTRUCTIONS = (
     "Egregore coordination tools for GitHub issues in this repository. "
@@ -58,6 +59,7 @@ TOOLS = [
     "request_review",
     "get_owner_decisions",
     "get_task_history",
+    "get_specialists",
 ]
 
 
@@ -139,6 +141,11 @@ def build_server(service: CoordinationService | None = None) -> MCPServer:
     def get_task_history(issue_number: int) -> ToolResponse:
         """Read the comment history of one issue, with secrets redacted."""
         return _response(bound.get_task_history(issue_number))
+
+    @server.tool(annotations=_READ)
+    def get_specialists(role: str = "", kind: str = "", specialist_id: str = "") -> ToolResponse:
+        """Find pinned specialist agent/skill source files. Does not run or install prompts."""
+        return _response(resolve_specialists(role=role, kind=kind, specialist_id=specialist_id))
 
     return server
 
