@@ -12,7 +12,7 @@ The GitHub token, or the GitHub App private key, stays in the client config on t
 
 ## Cloudflare Workers free tier
 
-Workers is the only hosted option worth writing down, and only on the free tier. This pull request does not create a Worker, a route, or an API token.
+Workers is the only hosted option worth writing down, and only on the free tier. The plan for moving Egregore there is in [docs/cloudflare-hosting.md](../docs/cloudflare-hosting.md). This page describes the Python server that runs today. Nothing here creates a Worker, a route, or an API token.
 
 The server is a CPython program. It uses the MCP Python SDK's Streamable HTTP stack (Starlette and uvicorn) and the stdlib HTTP client. That stack does not run on the Workers runtime. A Worker would be a different program, plus a place to store `EGREGORE_GITHUB_TOKEN`. Creating that Worker, and storing that token, are owner decisions: a deploy and a credential.
 
