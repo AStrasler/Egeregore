@@ -1,0 +1,37 @@
+name: PR format
+
+# Checks the pull request description: non-empty `## What` and `## Why`, and
+# `## Verification` when the diff touches a file that is not Markdown. It reads
+# the event payload and git history only. It posts nothing and fails with a job
+# summary, so it needs no write permission. It is not a required check.
+# The checker comes from the merge commit, so a pull request that edits it is
+# checked by its own version. That is fine for an advisory check.
+
+"on":
+  pull_request:
+    types: [opened, edited, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-format-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-format:
+    name: pr-format
+    if: "github.event.pull_request.draft == false && github.event.pull_request.user.type != 'Bot'"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check the description
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 scripts/pr_format.py --event "$GITHUB_EVENT_PATH" --base "$BASE_SHA" --head "$HEAD_SHA"
