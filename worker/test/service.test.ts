@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { GitHubClient, SubrequestBudget } from "../src/github";
 import { GitHubAppScopeError } from "../src/github-app";
 import { CoordinationService, BATCH_SIZE, LIST_PAGES } from "../src/service";
+import { issueFingerprint } from "../src/coordination";
 import { API, FakeGitHub, REPO, type Dataset } from "./helpers/fake-github";
 
 const NOW = Date.parse("2026-10-27T18:00:00Z");
@@ -140,6 +141,17 @@ describe("coordination service", () => {
     expect(result.error?.code).toBe("budget_exhausted");
     expect(github.writes).toHaveLength(0);
     expect(github.calls.length).toBeLessThanOrEqual(45);
+  });
+
+  it("fingerprints an issue by state, labels, updated_at and comment count, and ignores label order", () => {
+    const base = { state: "open", updated_at: "2026-10-29T12:00:00Z", comments: 2, labels: [{ name: "b" }, "a"] };
+    expect(issueFingerprint(base)).toBe(issueFingerprint({ ...base, labels: ["a", { name: "b" }] }));
+    expect(issueFingerprint(base)).not.toBe(issueFingerprint({ ...base, updated_at: "2026-10-29T12:30:00Z" }));
+    expect(issueFingerprint(base)).not.toBe(issueFingerprint({ ...base, comments: 3 }));
+    expect(issueFingerprint(base)).not.toBe(issueFingerprint({ ...base, state: "closed" }));
+    expect(issueFingerprint(base)).not.toBe(issueFingerprint({ ...base, labels: ["a"] }));
+    // A payload with neither field reads the same twice.
+    expect(issueFingerprint({ state: "open", labels: [] })).toBe(issueFingerprint({ state: "open", labels: [] }));
   });
 
   it("names what is missing when GitHub App settings are absent", async () => {
