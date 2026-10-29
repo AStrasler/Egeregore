@@ -1,0 +1,19 @@
+{
+  "note": "The permission model, shared by tests/test_auth_model_parity.py (Python) and worker/test/bearer-auth.test.ts (Worker). The Worker's TOOL_PERMISSIONS, PERMISSIONS and TOKEN_AGENTS in worker/src/auth.ts must equal this file. The Python side checks it against the Python server's own tool list and read-only marks.",
+  "permissions": ["read", "write", "review"],
+  "token_agents": ["chatgpt", "grokbot", "cursor", "codex"],
+  "tool_permissions": {
+    "ping": "read",
+    "get_tasks": "read",
+    "get_task": "read",
+    "get_task_history": "read",
+    "get_owner_decisions": "read",
+    "get_specialists": "read",
+    "claim_task": "write",
+    "renew_lease": "write",
+    "release_task": "write",
+    "post_progress": "write",
+    "handoff_task": "write",
+    "request_review": "review"
+  }
+}
