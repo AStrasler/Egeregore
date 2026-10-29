@@ -1284,8 +1284,14 @@ class RepoPolicyTests(unittest.TestCase):
             self.assertNotIn("visibility", text)
             uses = re.findall(r"uses:\s*(\S+)", text)
             self.assertTrue(uses)
+            allowed_actions = {
+                "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+            }
+            if path.name == "ci.yml":
+                # The worker job needs Node. Pinned by full commit SHA, like checkout.
+                allowed_actions.add("actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1")
             for use in uses:
-                self.assertEqual(use, "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1")
+                self.assertIn(use, allowed_actions)
             permissions = permission_lines(text)
             self.assertIn("contents: read", permissions)
             if path.name == "ci.yml":
