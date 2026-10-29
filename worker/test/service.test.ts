@@ -52,6 +52,96 @@ describe("coordination service", () => {
     expect(github.calls).toHaveLength(0);
   });
 
+  it("closes every write tool when the caller is not identified, without touching GitHub", async () => {
+    const { service: closed, github } = service({ issues: [task(1)], comments: {} }, { agent: null });
+    const results = [
+      await closed.claimTask(1),
+      await closed.renewLease(1),
+      await closed.releaseTask(1, "ready", "r"),
+      await closed.postProgress(1, "d", "n"),
+      await closed.handoffTask(1, "codex", "d", "n"),
+      await closed.requestReview(1),
+    ];
+    for (const result of results) {
+      expect(result.ok).toBe(false);
+      expect(result.error?.code).toBe("unauthenticated");
+    }
+    expect(github.calls).toHaveLength(0);
+    expect(github.writes).toHaveLength(0);
+  });
+
+  it("posts nothing when the rest of a write call would not fit in the request budget", async () => {
+    const dataset = { issues: [task(1, { labels: [{ name: "type:task" }, { name: "status:ready" }] })], comments: { "1": [] } };
+    // Two reads fit. The comment, the two label calls and the slack for a token do not.
+    const tight = service(dataset, { budget: new SubrequestBudget(7) });
+    const refused = await tight.service.claimTask(1);
+    expect(refused.ok).toBe(false);
+    expect(refused.error?.code).toBe("budget_exhausted");
+    expect(tight.github.writes).toHaveLength(0);
+    expect(tight.github.calls.length).toBeLessThanOrEqual(7);
+    // The same call with room to spare posts the claim and the labels, and stays inside its budget.
+    const roomy = service(dataset, { budget: new SubrequestBudget(45) });
+    const claimed = await roomy.service.claimTask(1);
+    expect(claimed.ok).toBe(true);
+    expect(roomy.github.writes.map((call) => call.method)).toEqual(["POST", "DELETE", "POST"]);
+    expect(roomy.github.calls.length).toBeLessThanOrEqual(45);
+  });
+
+  it("refuses a write before posting when a long comment thread used most of a small budget", async () => {
+    const thread = Array.from({ length: 8 }, (_, index) => comment(index + 1, "Agent: Cursor\n\nHello."));
+    const dataset = { issues: [task(1, { labels: [{ name: "type:task" }, { name: "status:ready" }] })], comments: { "1": thread } };
+    for (const run of [
+      (svc: CoordinationService) => svc.claimTask(1),
+      (svc: CoordinationService) => svc.renewLease(1),
+      (svc: CoordinationService) => svc.releaseTask(1, "ready", "r"),
+      (svc: CoordinationService) => svc.postProgress(1, "d", "n"),
+    ]) {
+      const { service: live, github } = service(dataset, { pageSize: 1, budget: new SubrequestBudget(12) });
+      const result = await run(live);
+      expect(result.ok).toBe(false);
+      expect(["budget_exhausted", "lease_not_holder"]).toContain(result.error?.code);
+      expect(github.writes).toHaveLength(0);
+      expect(github.calls.length).toBeLessThanOrEqual(12);
+    }
+  });
+
+  it("refuses status:done before posting when the linked pull requests cost more calls than are left", async () => {
+    const sha = "a1".repeat(20);
+    const links = Array.from({ length: 14 }, (_, index) => `https://github.com/${REPO}/pull/${100 + index}`).join("\n");
+    const pr = (number: number) => ({ number, title: "pr", state: "closed", labels: [], body: "", html_url: "", pull_request: { url: "x" } });
+    const issues = [
+      task(1, {
+        labels: [{ name: "type:task" }, { name: "status:in-progress" }, { name: "agent:cursor" }],
+        body: `### Role\n\ncursor\n\n### Project\n\ncoordination\n\n### Goal\n\nGoal\n\n### Acceptance criteria\n\nDone.\n\n${links}\n`,
+      }),
+      ...Array.from({ length: 14 }, (_, index) => pr(100 + index)),
+    ];
+    const claim = "Agent: Cursor\n\n## Claim\nClaim-Agent: cursor\nClaimed-At: 2026-10-27T17:00:00Z\nLease-Expires: 2026-10-27T23:00:00Z\nTask: work\nData-Boundary: coordination-only\n";
+    const comments: Record<string, unknown[]> = {
+      "1": [comment(1, claim), comment(2, "Agent: Cursor\n\n## Evidence\nShipped.")],
+    };
+    const pulls: Record<string, unknown> = {};
+    const reactions: Record<string, unknown[]> = {};
+    for (let index = 0; index < 14; index += 1) {
+      pulls[String(100 + index)] = { number: 100 + index, state: "closed", merged: true, head: { sha } };
+      comments[String(100 + index)] = [
+        {
+          id: 5000 + index,
+          created_at: "2026-10-26T10:00:00Z",
+          user: { login: "chatgpt-codex-connector[bot]" },
+          body: `codex-review-state:v1 ${JSON.stringify({ code_review: { status: "completed", commit_sha: sha, has_unresolved_findings: false } })}`,
+        },
+      ];
+      reactions[String(100 + index)] = [{ content: "+1", user: { login: "chatgpt-codex-connector[bot]" } }];
+    }
+    const { service: live, github } = service({ issues, comments, pulls, reactions } as Dataset);
+    const result = await live.releaseTask(1, "done", "finished");
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe("budget_exhausted");
+    expect(github.writes).toHaveLength(0);
+    expect(github.calls.length).toBeLessThanOrEqual(45);
+  });
+
   it("names what is missing when GitHub App settings are absent", async () => {
     const closed = new CoordinationService({
       agent: "cursor",
@@ -161,7 +251,7 @@ describe("coordination service", () => {
         },
         getIssue: async () => ({}),
         listComments: async () => [],
-      },
+      } as never,
       configProblems: [],
       now: () => NOW,
     });
@@ -175,7 +265,7 @@ describe("coordination service", () => {
         },
         getIssue: async () => ({}),
         listComments: async () => [],
-      },
+      } as never,
       configProblems: [],
       now: () => NOW,
     });
