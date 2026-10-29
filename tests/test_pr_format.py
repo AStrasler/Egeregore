@@ -90,6 +90,15 @@ class ParseSectionsTests(unittest.TestCase):
         self.assertEqual(list(pf.parse_sections(double)), ["what", "why"])
         self.assertIn("`<!--`", pf.parse_sections(body)["what"])
 
+    def test_a_section_that_starts_with_a_literal_opener_is_not_empty(self) -> None:
+        body = "## What\n`<!--` is now treated as literal text.\n\n## Why\n``<!-- x`` stays visible\n\n## Verification\nran it\n"
+        self.assertEqual(problems(body, CODE), [])
+        self.assertTrue(pf.check(body, CODE).ok)
+        symbols_only = "## What\n`<!--`\n\n## Why\nreason\n"
+        self.assertEqual(len(problems(symbols_only, MD_ONLY)), 1, "symbols alone are still not text")
+        with_word = "## What\n`<!--` opener\n\n## Why\nreason\n"
+        self.assertEqual(problems(with_word, MD_ONLY), [])
+
     def test_a_real_comment_next_to_a_code_span_is_still_hidden(self) -> None:
         body = "## What\nUse `code` <!-- hidden\n## Why\nhidden -->\nafter\n## Why\nreason\n"
         sections = pf.parse_sections(body)
@@ -126,6 +135,11 @@ class HasContentTests(unittest.TestCase):
         for text in ("", "   \n\t", "<!-- placeholder -->", "<!--\nmulti\nline\n-->", "- \n* \n---", "<!-- never closed\nstill comment"):
             with self.subTest(text=text):
                 self.assertFalse(pf.has_content(text))
+
+    def test_code_spans_keep_a_comment_opener_literal_here_too(self) -> None:
+        self.assertTrue(pf.has_content("`<!--` is literal text"))
+        self.assertFalse(pf.has_content("<!-- real comment -->"))
+        self.assertFalse(pf.has_content("<!--\nmulti `x`\n-->"))
 
     def test_text_next_to_a_comment_counts(self) -> None:
         self.assertTrue(pf.has_content("<!-- hint -->\nreal words"))

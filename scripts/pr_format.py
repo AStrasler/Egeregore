@@ -33,7 +33,6 @@ MARKDOWN_SUFFIXES = (".md", ".markdown")
 
 _HEADING = re.compile(r"^ {0,3}(#{1,2})[ \t]+(.*?)[ \t]*#*[ \t]*$")
 _FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
-_COMMENT = re.compile(r"<!--.*?(?:-->|\Z)", re.DOTALL)
 _WORD = re.compile(r"[^\W_]")
 
 
@@ -113,9 +112,22 @@ def parse_sections(body: str) -> dict[str, str]:
     return {name: "\n".join(lines) for name, lines in sections.items()}
 
 
+def _has_words(text: str) -> bool:
+    return bool(_WORD.search(text))
+
+
 def has_content(text: str) -> bool:
-    """True when the text holds at least one letter or digit outside comments."""
-    return bool(_WORD.search(_COMMENT.sub("", text or "")))
+    """True when raw text holds a letter or digit outside HTML comments.
+
+    Section text from `parse_sections` is already free of comments, so `check`
+    uses `_has_words` on it and never strips a second time.
+    """
+    kept: list[str] = []
+    in_comment = False
+    for line in (text or "").splitlines():
+        clean, in_comment = _strip_comments(line, in_comment)
+        kept.append(clean)
+    return _has_words("\n".join(kept))
 
 
 def is_markdown(path: str) -> bool:
@@ -171,7 +183,7 @@ def check(
         text = sections.get(name.lower())
         if text is None:
             result.problems.append(f"`## {name}` is missing.{_why_needed(name, result)}")
-        elif not has_content(text):
+        elif not _has_words(text):
             result.problems.append(
                 f"`## {name}` is empty. A heading, a comment or a placeholder alone does not count."
             )
