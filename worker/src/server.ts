@@ -40,17 +40,31 @@ function respond(envelope: Envelope) {
 }
 
 /**
+ * Decides whether this request's caller may use a tool. It returns the refusal
+ * envelope, or null to let the call through. Required, so a server cannot be
+ * built without an access decision.
+ */
+export type Gate = (tool: string) => Envelope | null;
+
+/**
  * Build a fresh MCP server. createMcpHandler calls this once per request, so
  * nothing here may hold state between requests. `service` is built per request
  * by the caller and carries that request's GitHub client and subrequest budget.
  *
  * `ping` is the scaffold health check. It reads no secret and calls no network.
  */
-export function createServer(service: CoordinationService): McpServer {
+export function createServer(service: CoordinationService, gate: Gate): McpServer {
   const server = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
     { instructions: INSTRUCTIONS },
   );
+
+  // Every handler goes through `guarded`, which asks the gate first. A tool
+  // that skipped it would be open, so no handler is registered without it.
+  const guarded =
+    <A>(tool: string, run: (args: A) => Promise<Envelope> | Envelope) =>
+    async (args: A) =>
+      respond(gate(tool) ?? (await run(args)));
 
   server.registerTool(
     "ping",
@@ -58,9 +72,11 @@ export function createServer(service: CoordinationService): McpServer {
       description: "Health check. Returns \"pong\", plus the message if one is given.",
       inputSchema: z.object({ message: z.string().max(64).optional() }),
     },
-    async ({ message }) => ({
-      content: [{ type: "text", text: message ? `pong: ${message}` : "pong" }],
-    }),
+    async ({ message }) => {
+      const refused = gate("ping");
+      if (refused) return respond(refused);
+      return { content: [{ type: "text" as const, text: message ? `pong: ${message}` : "pong" }] };
+    },
   );
 
   server.registerTool(
@@ -78,17 +94,16 @@ export function createServer(service: CoordinationService): McpServer {
       outputSchema: envelopeSchema,
       annotations: READ_ONLY,
     },
-    async ({ state, kind, status, project, role, limit }) =>
-      respond(
-        await service.getTasks({
-          state,
-          kind: kind || null,
-          status: status || null,
-          project: project || null,
-          role: role || null,
-          limit,
-        }),
-      ),
+    guarded("get_tasks", ({ state, kind, status, project, role, limit }) =>
+      service.getTasks({
+        state,
+        kind: kind || null,
+        status: status || null,
+        project: project || null,
+        role: role || null,
+        limit,
+      }),
+    ),
   );
 
   server.registerTool(
@@ -99,7 +114,7 @@ export function createServer(service: CoordinationService): McpServer {
       outputSchema: envelopeSchema,
       annotations: READ_ONLY,
     },
-    async ({ issue_number }) => respond(await service.getTask(issue_number)),
+    guarded("get_task", ({ issue_number }) => service.getTask(issue_number)),
   );
 
   server.registerTool(
@@ -114,7 +129,7 @@ export function createServer(service: CoordinationService): McpServer {
       outputSchema: envelopeSchema,
       annotations: READ_ONLY,
     },
-    async ({ state, limit }) => respond(await service.getOwnerDecisions({ state, limit })),
+    guarded("get_owner_decisions", ({ state, limit }) => service.getOwnerDecisions({ state, limit })),
   );
 
   server.registerTool(
@@ -125,7 +140,7 @@ export function createServer(service: CoordinationService): McpServer {
       outputSchema: envelopeSchema,
       annotations: READ_ONLY,
     },
-    async ({ issue_number }) => respond(await service.getTaskHistory(issue_number)),
+    guarded("get_task_history", ({ issue_number }) => service.getTaskHistory(issue_number)),
   );
 
   server.registerTool(
@@ -141,7 +156,7 @@ export function createServer(service: CoordinationService): McpServer {
       outputSchema: envelopeSchema,
       annotations: READ_ONLY,
     },
-    async (args) => respond(service.getSpecialistCatalog(args)),
+    guarded("get_specialists", (args) => service.getSpecialistCatalog(args)),
   );
 
   server.registerTool(
@@ -152,7 +167,7 @@ export function createServer(service: CoordinationService): McpServer {
       outputSchema: envelopeSchema,
       annotations: WRITE,
     },
-    async ({ issue_number, lease_hours }) => respond(await service.claimTask(issue_number, lease_hours)),
+    guarded("claim_task", ({ issue_number, lease_hours }) => service.claimTask(issue_number, lease_hours)),
   );
 
   server.registerTool(
@@ -167,8 +182,9 @@ export function createServer(service: CoordinationService): McpServer {
       outputSchema: envelopeSchema,
       annotations: WRITE,
     },
-    async ({ issue_number, lease_hours, note }) =>
-      respond(await service.renewLease(issue_number, lease_hours, note)),
+    guarded("renew_lease", ({ issue_number, lease_hours, note }) =>
+      service.renewLease(issue_number, lease_hours, note),
+    ),
   );
 
   server.registerTool(
@@ -180,7 +196,7 @@ export function createServer(service: CoordinationService): McpServer {
       outputSchema: envelopeSchema,
       annotations: WRITE,
     },
-    async ({ issue_number, status, reason }) => respond(await service.releaseTask(issue_number, status, reason)),
+    guarded("release_task", ({ issue_number, status, reason }) => service.releaseTask(issue_number, status, reason)),
   );
 
   server.registerTool(
@@ -191,7 +207,7 @@ export function createServer(service: CoordinationService): McpServer {
       outputSchema: envelopeSchema,
       annotations: WRITE,
     },
-    async ({ issue_number, done, next }) => respond(await service.postProgress(issue_number, done, next)),
+    guarded("post_progress", ({ issue_number, done, next }) => service.postProgress(issue_number, done, next)),
   );
 
   server.registerTool(
@@ -209,8 +225,9 @@ export function createServer(service: CoordinationService): McpServer {
       outputSchema: envelopeSchema,
       annotations: WRITE,
     },
-    async ({ issue_number, to_agent, done_so_far, next_action, title }) =>
-      respond(await service.handoffTask(issue_number, to_agent, done_so_far, next_action, title)),
+    guarded("handoff_task", ({ issue_number, to_agent, done_so_far, next_action, title }) =>
+      service.handoffTask(issue_number, to_agent, done_so_far, next_action, title),
+    ),
   );
 
   server.registerTool(
@@ -222,7 +239,7 @@ export function createServer(service: CoordinationService): McpServer {
       outputSchema: envelopeSchema,
       annotations: WRITE,
     },
-    async ({ pull_number }) => respond(await service.requestReview(pull_number)),
+    guarded("request_review", ({ pull_number }) => service.requestReview(pull_number)),
   );
 
   return server;
