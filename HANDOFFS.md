@@ -68,7 +68,7 @@ None of these fields carries data or access. Decisions and Open threads hold coo
 Lease watch applies these rules once a handoff has had no newer comment for 14 days. They follow the lifecycle rules in the egregore handoff tooling. See [docs/RUNBOOK.md](docs/RUNBOOK.md) for the mechanics.
 
 - Age alone never marks a handoff done. Only the done gate in `release_task` can set `status:done`, and it needs evidence.
-- An `fyi` handoff, or one nobody picked up, expires. Expiry is one comment, and the issue stays open unless the workflow runs in close mode.
+- An `fyi` or `feedback` handoff that nobody picked up expires, and so does an `fyi` handoff someone did touch. An `action` handoff never expires on age, picked up or not. It waits for a person. Expiry is one comment, and the issue stays open unless the workflow runs in close mode.
 - An `action` or `feedback` handoff that someone picked up stays open for a person until there is an evidence comment, and then a person closes it.
 
 A new comment on the handoff starts a new 14-day window.

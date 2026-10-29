@@ -1406,11 +1406,21 @@ class HandoffLifecycleTests(unittest.TestCase):
         self.assertEqual(coord.handoff_expiry_mode("anything else"), "flag")
         self.assertEqual(coord.handoff_expiry_mode(""), "flag")
 
-    def test_an_untouched_handoff_expires_whatever_its_intent(self) -> None:
+    def test_an_untouched_feedback_or_fyi_handoff_expires_after_fourteen_days(self) -> None:
         workflow_only = [comment(coord.HYGIENE_MARKER + "\nHygiene ok", NOW - timedelta(days=20), 1)]
-        for intent in ("action", "feedback", "fyi", None):
+        for intent in ("feedback", "fyi", None):
             self.assertEqual(self.plan(handoff_issue(1, intent, 20), []).outcome, "expire", intent)
             self.assertEqual(self.plan(handoff_issue(1, intent, 20), workflow_only).outcome, "expire", intent)
+            self.assertEqual(self.plan(handoff_issue(1, intent, 13), []).outcome, "none", intent)
+
+    def test_an_untouched_action_handoff_is_never_expired_by_age(self) -> None:
+        workflow_only = [comment(coord.HYGIENE_MARKER + "\nHygiene ok", NOW - timedelta(days=20), 1)]
+        for age in (14, 20, 60, 400, 5000):
+            for mode in ("flag", "close"):
+                for thread in ([], workflow_only):
+                    plan = self.plan(handoff_issue(1, "action", age), thread, mode=mode)
+                    self.assertEqual((plan.outcome, plan.comment, plan.close), ("hold", None, False), (age, mode))
+        self.assertEqual(self.plan(handoff_issue(1, "action", 13), []).outcome, "none")
 
     def test_picked_up_action_and_feedback_without_evidence_stay_open_for_a_person(self) -> None:
         for intent in ("action", "feedback", None):

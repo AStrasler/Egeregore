@@ -1043,8 +1043,9 @@ def handoff_plan(
 
     - Age alone never marks anything done. No outcome here sets status:done.
     - A handoff with no activity for 14 days expires when nothing is owed back
-      (intent fyi), or when nobody ever picked it up: no comment but this
-      workflow's own notes, whatever its intent.
+      (intent fyi), or when nobody ever picked it up (no comment but this
+      workflow's own notes) and its intent is not action. An action handoff is
+      work someone owes, so age alone never expires it, touched or not.
     - A handoff someone did pick up (action or feedback, claimed or answered)
       and that has no evidence comment stays open for a person, whatever its
       age. With evidence a person still closes it.
@@ -1066,7 +1067,7 @@ def handoff_plan(
         return HandoffPlan("none", "has evidence; a person decides")
     intent = handoff_intent(body)
     untouched = all(is_workflow_comment(str(comment.get("body") or "")) for comment in comments)
-    if intent == "fyi" or untouched:
+    if intent == "fyi" or (untouched and intent != "action"):
         stamp = activity.strftime("%Y-%m-%dT%H:%M:%SZ")
         notes = [
             str(comment.get("body") or "")
@@ -1087,6 +1088,8 @@ def handoff_plan(
             "A newer comment starts a new 14-day window.",
         ]
         return HandoffPlan("expire", "idle for 14 days with nothing owed", "\n".join(lines) + "\n", closing)
+    if untouched:
+        return HandoffPlan("hold", "action handoff nobody picked up waits for a person")
     return HandoffPlan("hold", "picked up without evidence stays open for a person")
 
 
