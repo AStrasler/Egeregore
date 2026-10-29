@@ -21,6 +21,12 @@ jobs:
         run: python3 -m pip install --disable-pip-version-check -r mcp/requirements.txt
       - name: Test coordination rules
         run: python3 -m unittest discover -s tests -v
+      - name: Test document rules
+        run: node --test scripts/doc-check.test.mjs
+      - name: Check documents
+        run: |
+          node scripts/doc-check.mjs validate
+          node scripts/doc-check.mjs check --format github
 
   # Egregore on Cloudflare Workers. Runs real work only when worker/** changed,
   # so Python-only pull requests skip it. It never deploys and holds no secrets:
