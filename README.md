@@ -71,4 +71,4 @@ python3 -m unittest discover -s tests -v
 
 ## License
 
-Copyright 2026 Aaron Strasler. This project is licensed under the Apache License, Version 2.0. The full text is in [LICENSE](LICENSE).
+Copyright 2026 Aaron Strasler. This project is licensed under the Apache License, Version 2.0. The full text is in [LICENSE](LICENSE). Parts adapted from MIT-licensed work are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

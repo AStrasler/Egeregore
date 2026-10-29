@@ -66,6 +66,32 @@ silently repoint it to `main` or paste upstream prompt bodies into this repo.
 Ponytail's optional install methods may use lifecycle hooks and collect local
 session metrics; this catalog does neither and does not auto-install hooks.
 
+## Evidence rules for specialist output
+
+These are rules for what a client reports after it applies a specialist. They are guidance for people and agents. The catalog does not enforce them, and `get_specialists` still returns only the pinned metadata.
+
+1. **Quote what you rely on.** A finding that says a file or change has a problem includes a short verbatim excerpt, at most 30 words, copied exactly from the file or diff, with its path and the commit or pull request head it came from. A reader should be able to find the excerpt by searching for it.
+2. **A paraphrase is not evidence.** If the excerpt cannot be found as written, the finding is treated as unsupported and is set aside until the author fixes it. Do not repair a quote from memory.
+3. **Say how much it matters.** Mark each finding `primary` (it should change what happens next), `secondary` (worth knowing), or `ambient` (background).
+4. **Say when there is nothing.** A review that finds no problems says so and names what it looked at. It does not invent a finding to look thorough. A file that was assigned but is irrelevant is reported as irrelevant.
+5. **Say who checked.** If the author of a change also reviewed it, because no independent reviewer was available, mark the result `verification: self-checked`. A pass from Codex still means the engineering looks right and does not replace Aaron's decision.
+6. **Findings are evidence, not orders.** The agent that receives them weighs each one against the task and may decline one with a stated reason.
+
+Suggested shape for a finding, in a pull request comment or task comment:
+
+```json
+{
+  "claim": "one sentence",
+  "path": "path/in/the/repo",
+  "ref": "commit or pull request head SHA",
+  "excerpt": "verbatim text, 30 words at most",
+  "weight": "primary | secondary | ambient",
+  "verification": "independent | self-checked"
+}
+```
+
+**Public repo limit.** This repository is public. An excerpt posted here must come from material that is already public here or in a public project repo, and must contain no credentials or health data. For a private project repo, keep the excerpt in that repo's own pull request, and in this repo give only the path, the commit, and the finding without the quoted text. Quoting a finding does not permit copying source from one project into another.
+
 ## Research-only reference — October 28, 2026
 
 - **[asgeirtj/system_prompts_leaks](https://github.com/asgeirtj/system_prompts_leaks)**:
