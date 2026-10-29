@@ -117,7 +117,7 @@ class GitHubAppAuth:
         skew: timedelta = _REFRESH_SKEW,
     ) -> None:
         owner, _sep, name = repo.partition("/")
-        if not owner or not name or "/" in name:
+        if not owner or not name or "/" in name or owner in (".", "..") or name in (".", ".."):
             raise GitHubAppConfigError("EGREGORE_REPO must be owner/name.")
         if not app_id.isdigit():
             raise GitHubAppConfigError("EGREGORE_APP_ID must be the numeric GitHub App id.")
