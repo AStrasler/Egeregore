@@ -70,10 +70,7 @@ def err(code: str, message: str, **details: object) -> dict[str, object]:
 
 
 def redact_text(text: str) -> str:
-    cleaned = text
-    for pattern in coord.SECRET_PATTERNS:
-        cleaned = pattern.sub("[redacted]", cleaned)
-    return cleaned
+    return coord.redact_secrets(text)
 
 
 def _same_commit(left: str, right: str) -> bool:
