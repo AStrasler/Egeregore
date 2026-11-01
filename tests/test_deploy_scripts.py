@@ -95,6 +95,46 @@ class ProvisionTests(unittest.TestCase):
         raw = json.loads((self.out / "agent-tokens.private.json").read_text())
         self.assertEqual([(t["agent"], t["permissions"], t["label"]) for t in raw["tokens"]], [("codex", ["read"], "only codex")])
 
+    def test_default_labels_are_distinct_even_on_the_same_day(self) -> None:
+        second = Path(self.tmp.name) / "secrets" / "second"
+        plan = Path(self.tmp.name) / "plan.json"
+        plan.write_text(json.dumps([{"agent": "cursor"}, {"agent": "cursor"}, {"agent": "codex", "permissions": ["read"]}]))
+        labels = []
+        for out in (self.out, second):
+            done = run(PROVISION, "--out-dir", str(out), "--plan", str(plan))
+            self.assertEqual(done.returncode, 0, done.stderr)
+            raw = json.loads((out / "agent-tokens.private.json").read_text())
+            records = json.loads((out / "agent-tokens.records.json").read_text())
+            self.assertEqual([t["label"] for t in raw["tokens"]], [r["label"] for r in records])
+            labels.extend(t["label"] for t in raw["tokens"])
+        self.assertEqual(len(labels), 6)
+        self.assertEqual(len(set(labels)), 6, labels)
+        for label in labels:
+            self.assertRegex(label, r"^(cursor|codex)-\d{8}-[0-9a-f]{8}$")
+
+    def test_a_merged_rotation_set_keeps_every_label_unique_and_revokes_only_one(self) -> None:
+        second = Path(self.tmp.name) / "secrets" / "second"
+        self.assertEqual(self.provision().returncode, 0)
+        self.assertEqual(run(PROVISION, "--out-dir", str(second)).returncode, 0)
+        old = json.loads((self.out / "agent-tokens.records.json").read_text())
+        new = json.loads((second / "agent-tokens.records.json").read_text())
+        merged = old + new
+        labels = [r["label"] for r in merged]
+        self.assertEqual(len(labels), len(set(labels)))
+        target = next(r["label"] for r in old if r["agent"] == "cursor")
+        remaining = [r for r in merged if r["label"] != target]
+        self.assertEqual(len(remaining), len(merged) - 1, "retiring one label removes exactly one record")
+        self.assertTrue(any(r["agent"] == "cursor" for r in remaining), "the replacement cursor token survives")
+
+    def test_two_tokens_with_the_same_label_in_one_plan_are_refused(self) -> None:
+        plan = Path(self.tmp.name) / "plan.json"
+        plan.write_text(json.dumps([{"agent": "cursor", "label": "same"}, {"agent": "codex", "label": "same"}]))
+        done = self.provision("--plan", str(plan))
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("same label", done.stderr)
+        self.assertFalse((self.out / "agent-tokens.private.json").exists())
+        self.assertFalse((self.out / "agent-tokens.records.json").exists())
+
     def test_a_bad_plan_writes_nothing(self) -> None:
         plan = Path(self.tmp.name) / "plan.json"
         for entry in ({"agent": "aaron"}, {"agent": "cursor", "permissions": ["admin"]}, {"agent": "cursor", "repos": ["*"]}):
@@ -212,6 +252,44 @@ class SmokeCommandTests(unittest.TestCase):
     def test_it_needs_a_url_a_file_and_an_issue(self) -> None:
         for args in ([], ["--url", "https://example.com/mcp"], ["--tokens-file", str(self.file), "--issue", "x", "--url", "https://example.com/mcp"]):
             self.assertEqual(run(SMOKE, *args).returncode, 2, args)
+
+
+class RunbookDecisionTests(unittest.TestCase):
+    """The runbook must not let an agent touch a credential before an owner decision."""
+
+    text = (ROOT / "docs" / "DEPLOY-RUNBOOK.md").read_text(encoding="utf-8")
+
+    def test_the_prerequisite_comes_before_the_first_step_and_cites_agents_md(self) -> None:
+        pre = self.text.index("## Prerequisite: an owner decision before any step")
+        self.assertLess(pre, self.text.index("## Step 0."))
+        self.assertGreater(pre, self.text.index("## Rules that sit above every step"))
+        section = self.text[pre : self.text.index("## Step 0.")]
+        for needle in (
+            "AGENTS.md",
+            "owner-decision issue",
+            "EGREGORE_CLOUDFLARE_API_TOKEN",
+            "EGREGORE_APP_PRIVATE_KEY",
+            "does not grant it",
+            "not proof",
+            "Search open and closed `[Decision]` issues",
+        ):
+            self.assertIn(needle, section)
+
+    def test_steps_zero_to_two_are_not_called_harmless_preparation(self) -> None:
+        self.assertNotIn("Steps 0 to 2 only prepare", self.text)
+        rule = self.text[self.text.index("3. **Aaron owns every release"):self.text.index("4. **No secret in chat")]
+        self.assertIn("Steps 0 to 2", rule)
+        self.assertIn("read the Cloudflare credential", rule)
+        step0 = self.text[self.text.index("## Step 0."):self.text.index("## Step 1.")]
+        self.assertIn("starts only after the prerequisite", step0)
+
+    def test_rotation_and_revocation_need_their_own_decision(self) -> None:
+        step6 = self.text[self.text.index("## Step 6."):]
+        self.assertIn("needs an owner decision", step6)
+
+    def test_revocation_goes_by_a_checked_unique_label(self) -> None:
+        self.assertIn("length == 1", self.text)
+        self.assertIn("length == (unique | length)", self.text)
 
 
 if __name__ == "__main__":

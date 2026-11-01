@@ -8,7 +8,7 @@ The design is in [cloudflare-hosting.md](cloudflare-hosting.md). The Worker's be
 
 1. **Workers Free only. Never bill.** No billing, plan, subscription, payment, custom domain, route, Durable Object, KV, R2, Queue, or Logpush call, ever. If something needs a paid feature, stop and ask Aaron. Exceeding a Free limit makes requests fail. It does not charge.
 2. **Nothing runs on Aaron's device.** Egregore runs every command from its own box. The tokens and the Cloudflare credential stay on the box. Aaron's part is to say yes at the gates, and to carry each token to its client (step 5).
-3. **Aaron owns every release.** Steps 0 to 2 only prepare. Step 3 promotes a version and opens a public URL, so it needs Aaron's own words in chat. A comment, reaction, or label from his GitHub account is not proof. The smoke test (step 4) writes to a test issue, so the same message has to name that too.
+3. **Aaron owns every release, and every credential step needs an owner decision first.** [AGENTS.md](../AGENTS.md) says to stop and open an owner-decision issue before creating, reading, copying, or rotating a credential, and before deploying or changing production configuration. Steps 0 to 2 change nothing live, but they read the Cloudflare credential, create the agent tokens, and copy the GitHub App key into Cloudflare, so they are covered by that rule. Do the [prerequisite](#prerequisite-an-owner-decision-before-any-step) before step 0. Step 3 promotes a version and opens a public URL, so it also needs Aaron's own words in chat. A comment, reaction, or label from his GitHub account is not proof. The smoke test (step 4) writes to a test issue, so the same message has to name that too.
 4. **No secret in chat, in a tool result, in the repository, or in a log.** Tool output reaches a transcript. Never run `env`, `printenv`, `set`, `cat` on a secret file, `echo "$TOKEN"`, or a command with `-x`. Pass a secret by environment variable or standard input, never as an argument, because arguments show in `ps`.
 5. **Stop at the first surprise.** A failed check, an unexpected deployment, a second account, or a prompt this document does not describe is a stop. Report it. Do not work around it.
 6. **Use only the Egregore credential.** The box holds other Cloudflare credentials for other projects. This runbook uses `EGREGORE_CLOUDFLARE_API_TOKEN` and nothing else.
@@ -36,9 +36,25 @@ Worker settings, from `worker/src/index.ts`:
 
 `wrangler.jsonc` stays as it is: `workers_dev` false, `preview_urls` false, no route, no binding. The public URL in step 3 is a Cloudflare setting for the live Worker. It is not a repository change.
 
+## Prerequisite: an owner decision before any step
+
+Do this before step 0. Nothing in this runbook reads, creates, copies, or rotates a credential until it is done. Reading or merging this file is not that decision, and neither is the approval of the pull request that added it.
+
+1. Search open and closed `[Decision]` issues for the same request, as [AGENTS.md](../AGENTS.md#owner-decisions) says. If one already covers every item below, link it. Do not file a second one. If a new one replaces an older one, put the older number in its Supersedes field.
+2. If none does, open one owner-decision issue from the form, then stop and wait. Its Request names:
+   - reading and using the box secret `EGREGORE_CLOUDFLARE_API_TOKEN` (step 0);
+   - creating the agent tokens and keeping them on the box (step 1);
+   - copying `EGREGORE_APP_PRIVATE_KEY` and the generated records into a staged Worker version (step 2);
+   - the release itself, meaning promotion, the public URL, and the smoke test (steps 3 and 4);
+   - the Cloudflare account, the Worker name `egeregore`, the commit SHA, and the Free plan limit.
+3. The decision records the request. It does not grant it. Aaron's own words in chat, naming the same items, are what start step 0. A `Decision: approve` comment from his GitHub account is not proof on its own, because an agent can post through that account.
+4. Link the decision issue in every progress note for this release. If an item is missing from it, such as a later rotation, stop and file a new decision first. Approval of one item does not cover another.
+
+The [Gate](#gate-aarons-explicit-sign-off) is a second, narrower stop at the point of going live. It does not replace this prerequisite.
+
 ## Step 0. Prepare the box and read the current state
 
-Nothing here changes anything. Use one shell, so the exports are gone when it ends.
+This step reads the Cloudflare credential, so it starts only after the prerequisite above. Nothing here changes anything. Use one shell, so the exports are gone when it ends.
 
 ```sh
 set +x
@@ -256,6 +272,8 @@ When every client works, keep the raw token file. It is the only copy of the tok
 
 ## Step 6. Rollback, revocation, and rotation
 
+Revoking or rotating a token, the GitHub App key, or the Cloudflare credential is credential handling. Each one needs an owner decision that names it, as in the [prerequisite](#prerequisite-an-owner-decision-before-any-step), unless the decision already linked covers it. A rollback of code, to close the door fast, may start at once. Tell Aaron right after.
+
 ### Roll back (the Worker misbehaves, or a gate was wrong)
 
 Close the door first, then restore the code:
@@ -273,16 +291,19 @@ Disabling `workers.dev` is the quick way to close the URL, and it stops all traf
 Remove its record, check the array, stage it, and promote. **Staging alone changes nothing. The old token works until the new version is promoted.**
 
 ```sh
-jq 'map(select(.label != "cursor-20261029"))' "$SECRETS_DIR/agent-tokens.records.json" > "$SECRETS_DIR/agent-tokens.records.next.json"
+OLD_LABEL="<the label of the token to retire, from agent-tokens.private.json>"
+# Labels are unique per generation, but check: exactly one record must match.
+jq -e --arg label "$OLD_LABEL" '[.[] | select(.label == $label)] | length == 1' "$SECRETS_DIR/agent-tokens.records.json"
+jq --arg label "$OLD_LABEL" 'map(select(.label != $label))' "$SECRETS_DIR/agent-tokens.records.json" > "$SECRETS_DIR/agent-tokens.records.next.json"
 node --experimental-strip-types --no-warnings worker/scripts/check-agent-tokens.mjs < "$SECRETS_DIR/agent-tokens.records.next.json"
 ```
 
-Then stage as in step 2 (with the `.next.json` file) and promote as in step 3, with Aaron's sign-off for the promotion. Remove the raw token from the private file when done, and tell the client to stop using it. Labels are in `agent-tokens.private.json`.
+Then stage as in step 2 (with the `.next.json` file) and promote as in step 3, with Aaron's sign-off for the promotion. Remove the raw token from the private file when done, and tell the client to stop using it. Labels are in `agent-tokens.private.json`. Each generated token gets a default label of the form `agent-YYYYMMDD-xxxxxxxx`, where the last part is random for that token, so a rotation on the same day never reuses a label. If you give labels in a plan file, keep them unique across the old and new sets. The `jq -e` line stops the command when zero or two records match, so a retired label cannot take a new token with it.
 
 ### Rotate tokens without a gap
 
 1. Provision a new set into a **new** directory: `provision-agent-tokens.mjs --out-dir "$HOME/.egregore-secrets/<date>-rotation" --plan plan.json`, where the plan lists only the agents being rotated.
-2. Merge old and new records, so both work: `jq -s 'add' old/agent-tokens.records.json new/agent-tokens.records.json > merged.json`. Check it with `check-agent-tokens.mjs`. The limit is 32 records and 16 KiB.
+2. Merge old and new records, so both work: `jq -s 'add' old/agent-tokens.records.json new/agent-tokens.records.json > merged.json`. Check it with `check-agent-tokens.mjs`, and check that every label is unique: `jq -e 'map(.label) | length == (unique | length)' merged.json`. The limit is 32 records and 16 KiB.
 3. Stage `merged.json` (step 2) and promote it (step 3, with Aaron's sign-off).
 4. Switch each client to its new token (step 5). Run the smoke test with a tokens file that has the new tokens.
 5. Revoke the old records with the steps above, stage, and promote with Aaron's sign-off. Delete the old directory's private file.

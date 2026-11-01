@@ -20,6 +20,7 @@
 // Its output names the agents and permissions. It never prints a token.
 
 import { execFileSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -117,7 +118,9 @@ function generate(entry, stamp) {
   if (entry.permissions !== undefined) args.push("--permissions", [].concat(entry.permissions).join(","));
   if (entry.repos !== undefined) args.push("--repos", [].concat(entry.repos).join(","));
   if (entry.tools !== undefined) args.push("--tools", [].concat(entry.tools).join(","));
-  args.push("--label", entry.label ?? `${entry.agent}-${stamp}`);
+  // A default label is unique per token (date plus 8 random hex characters), because
+  // the runbook retires a token by its label. Two runs on one day must not collide.
+  args.push("--label", entry.label ?? `${entry.agent}-${stamp}-${randomBytes(4).toString("hex")}`);
   let out;
   try {
     out = execFileSync(process.execPath, args, { stdio: ["ignore", "pipe", "pipe"] }).toString();
@@ -163,6 +166,8 @@ for (const path of [privatePath, recordsPath]) {
 const stamp = new Date().toISOString().slice(0, 10).replaceAll("-", "");
 const made = plan.map((entry) => generate(entry, stamp));
 const records = made.map((item) => item.record);
+const labels = records.map((record) => record.label);
+if (new Set(labels).size !== labels.length) fail("two tokens in the plan have the same label. Labels must be unique, so a token can be retired alone. Nothing was written.");
 const verdict = checkWithWorkerParser(records);
 
 writeFileSync(recordsPath, `${JSON.stringify(records, null, 2)}\n`, { mode: 0o600, flag: "wx" });
