@@ -1281,9 +1281,10 @@ class RepoPolicyTests(unittest.TestCase):
         files = sorted(workflow_dir.glob("*.yml"))
         self.assertEqual(
             [path.name for path in files],
-            ["ci.yml", "issue-hygiene.yml", "lease-watch.yml", "pr-format.yml"],
+            ["ci.yml", "issue-hygiene.yml", "lease-watch.yml", "pr-format.yml", "pullfrog.yml"],
         )
-        for path in files:
+        existing_files = [path for path in files if path.name != "pullfrog.yml"]
+        for path in existing_files:
             text = path.read_text(encoding="utf-8")
             self.assertNotIn("pull_request_target", text)
             self.assertNotIn("workflow_run", text)
@@ -1318,12 +1319,43 @@ class RepoPolicyTests(unittest.TestCase):
         ci = (workflow_dir / "ci.yml").read_text(encoding="utf-8")
         self.assertIn("python3 -m unittest discover -s tests -v", ci)
         self.assertLess(ci.index("permissions:"), ci.index("jobs:"))
-        for path in files:
+        for path in existing_files:
             text = path.read_text(encoding="utf-8")
             self.assertLess(text.index("permissions:"), text.index("jobs:"))
             self.assertNotIn("contents: write", text)
             self.assertNotIn("pull-requests:", text)
             self.assertEqual(len(re.findall(r"(?m)^permissions:[ \t]*$", text)), 1)
+
+    def test_pullfrog_workflow_is_manual_pinned_and_bounded(self) -> None:
+        """Explicitly permit the owner's write-capable agent without loosening existing CI rules."""
+        workflow = (ROOT / ".github" / "workflows" / "pullfrog.yml").read_text(encoding="utf-8")
+        self.assertIn("workflow_dispatch:", workflow)
+        self.assertNotIn("pull_request_target", workflow)
+        self.assertNotIn("workflow_run", workflow)
+        self.assertNotIn("secrets.", workflow)
+        self.assertNotIn("self-hosted", workflow)
+        self.assertIn("runs-on: ubuntu-24.04", workflow)
+        self.assertIn("timeout-minutes: 12", workflow)
+        self.assertIn("timeout: 8m", workflow)
+        self.assertIn("PULLFROG_AGENT: codex", workflow)
+        self.assertIn("model: openai/gpt-sol", workflow)
+        self.assertIn("push: enabled", workflow)
+        self.assertIn("shell: restricted", workflow)
+        self.assertIn("cancel-in-progress: true", workflow)
+        self.assertEqual(
+            re.findall(r"uses:\s*(\S+)", workflow),
+            [
+                "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+                "pullfrog/pullfrog@0613df0079954102a9727e833b1e4da229b8f440",
+            ],
+        )
+        self.assertEqual(
+            permission_lines(workflow),
+            [
+                "id-token: write", "contents: write", "pull-requests: write",
+                "issues: write", "actions: read", "checks: read",
+            ],
+        )
 
     def test_readme_and_apache_license_are_present(self) -> None:
         license_text = (ROOT / "LICENSE").read_text(encoding="utf-8")
