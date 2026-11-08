@@ -33,12 +33,12 @@ jobs:
     timeout-minutes: 12
     steps:
       - name: Checkout source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
           fetch-depth: 1
       - name: Run native Codex through Pullfrog
-        uses: pullfrog/pullfrog@v0
+        uses: pullfrog/pullfrog@0613df0079954102a9727e833b1e4da229b8f440 # v0
         env:
           PULLFROG_AGENT: codex
         with:
