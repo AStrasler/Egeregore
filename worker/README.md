@@ -85,7 +85,7 @@ One bad record rejects the whole array, so a typo cannot leave a token with more
 3. `wrangler versions secret bulk` stages `EGREGORE_AGENT_TOKENS`, the App key and the App ID on a new version that is not live. Do not use `wrangler secret put`, which deploys at once. Nothing in this repository or its CI sets a secret.
 4. Aaron's explicit say-so promotes the version and turns on `workers.dev`. `smoke-test.mjs` then checks the live Worker against a test issue.
 5. Aaron hands each token to its client. Do not commit it or paste it into chat.
-6. To rotate, add a record for a new token, switch the client, then remove the old record. To revoke, remove the record. Either takes effect only when the new version is promoted.
+6. To rotate, add a record for a new token, stage and promote that version, switch the client, then stage and promote a version that removes the old record. To revoke, remove the record. Either takes effect only when the new version is promoted.
 
 The token check is one SHA-256 and a loop over at most 32 digests, so it stays far inside the 10 ms Free-plan CPU limit. The parsed config is cached per isolate.
 
