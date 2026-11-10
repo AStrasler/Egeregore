@@ -68,10 +68,11 @@ export CLOUDFLARE_API_TOKEN="$EGREGORE_CLOUDFLARE_API_TOKEN"
 export CLOUDFLARE_ACCOUNT_ID="<the Egregore account ID>"
 
 # A small helper for the REST calls. The credential goes in on standard input,
-# not in the argument list.
+# not in the argument list. `-q` has to come first: it skips ~/.curlrc, where a
+# trace setting could write the Authorization header to disk.
 cf() {  # cf METHOD /path [json-body]
   printf 'header = "Authorization: Bearer %s"\n' "$CLOUDFLARE_API_TOKEN" |
-    curl -sS --fail-with-body -K - -X "$1" -H 'Content-Type: application/json' \
+    curl -q -sS --fail-with-body -K - -X "$1" -H 'Content-Type: application/json' \
       "https://api.cloudflare.com/client/v4$2" ${3:+--data "$3"}
 }
 ```
