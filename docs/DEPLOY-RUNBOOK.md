@@ -159,10 +159,11 @@ Stage the three settings in **one** new version. `wrangler versions secret bulk`
 export EGREGORE_APP_ID_VALUE=5503558
 jq -n \
   --rawfile tokens "$SECRETS_DIR/agent-tokens.records.json" \
-  '{
-     EGREGORE_AGENT_TOKENS: ($tokens | fromjson | tojson),
-     EGREGORE_APP_PRIVATE_KEY: env.EGREGORE_APP_PRIVATE_KEY,
-     EGREGORE_APP_ID: env.EGREGORE_APP_ID_VALUE
+  'def need: if . == null or . == "" then error("a required value is missing or empty") else . end;
+   {
+     EGREGORE_AGENT_TOKENS: ($tokens | fromjson | tojson | need),
+     EGREGORE_APP_PRIVATE_KEY: (env.EGREGORE_APP_PRIVATE_KEY | need),
+     EGREGORE_APP_ID: (env.EGREGORE_APP_ID_VALUE | need)
    }' |
   wr versions secret bulk --name egeregore \
     --message "Stage secrets for the first release. Not deployed." \
@@ -170,7 +171,7 @@ jq -n \
 unset EGREGORE_APP_ID_VALUE
 ```
 
-`jq` reads the key from the environment, so it is never an argument. Wrangler reads the JSON from standard input and prints only the names it set. The new version copies the code and settings of the newest uploaded version, so this is why step 0 checks that the newest version is the commit being released. A later `versions upload` from Workers Builds keeps the existing secrets.
+`jq` reads the key from the environment, so it is never an argument. The `need` check makes `jq` stop with an error and print nothing when the key, the ID or the records are unset or empty. That matters because Wrangler deletes a secret whose value is `null`, so an unset `EGREGORE_APP_PRIVATE_KEY` would otherwise stage a version without the App key. With nothing on standard input Wrangler stages no version, and `pipefail` makes the pipeline exit non-zero. Stop if it does. Wrangler reads the JSON from standard input and prints only the names it set. The new version copies the code and settings of the newest uploaded version, so this is why step 0 checks that the newest version is the commit being released. A later `versions upload` from Workers Builds keeps the existing secrets.
 
 Check that nothing went live:
 
