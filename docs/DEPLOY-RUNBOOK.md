@@ -54,10 +54,11 @@ The [Gate](#gate-aarons-explicit-sign-off) is a second, narrower stop at the poi
 
 ## Step 0. Prepare the box and read the current state
 
-This step reads the Cloudflare credential, so it starts only after the prerequisite above. Nothing here changes anything. Use one shell, so the exports are gone when it ends.
+This step reads the Cloudflare credential, so it starts only after the prerequisite above. Nothing here changes anything. Use one bash shell, so the exports are gone when it ends.
 
 ```sh
 set +x
+set -o pipefail                                # a failed `cf ... | jq` must not look like success
 cd "$(git rev-parse --show-toplevel)"           # a checkout of main at the commit being released
 git rev-parse HEAD                              # record this SHA; it is the commit to release
 node --version                                  # 22.12 or later, the Worker's engines.node
@@ -76,6 +77,8 @@ cf() {  # cf METHOD /path [json-body]
       "https://api.cloudflare.com/client/v4$2" ${3:+--data "$3"}
 }
 ```
+
+With `pipefail` on, a `cf` call that fails (no connection, or an HTTP error) makes its whole pipeline exit non-zero instead of passing on `jq`'s success. Read the exit status of every `cf` and `wr` command. A non-zero status is a stop under rule 5, and a `cf` call that printed `null` for its result is one too.
 
 Then read the state:
 
@@ -207,7 +210,7 @@ MCP_URL="https://egeregore.$SUBDOMAIN.workers.dev/mcp"
 Notes:
 
 - `wrangler.jsonc` still says `workers_dev: false`. `versions upload` does not apply it, so the setting above stands. A future `wrangler deploy` would turn the URL off again. The build command stays `wrangler versions upload`, so this does not happen by accident.
-- If either command fails or asks anything unexpected, go to step 6 (rollback) and report.
+- If either command exits non-zero or asks anything unexpected, go to step 6 (rollback) and report. Do not build `MCP_URL` or run the smoke test unless the `cf POST` succeeded and `SUBDOMAIN` is a real name, not empty or `null`.
 
 ## Step 4. Smoke test
 
@@ -285,7 +288,7 @@ wr rollback "$PREVIOUS_VERSION" --name egeregore --message "Rollback of the firs
 wr deployments list --name egeregore            # PREVIOUS_VERSION at 100%
 ```
 
-Disabling `workers.dev` is the quick way to close the URL, and it stops all traffic. Re-promoting restores the old code. Both are safe to run twice. Tell Aaron what was rolled back and why. If the only cause was a failed smoke test of a bad test issue, fix the issue and re-run step 4. Do not roll back for it.
+Disabling `workers.dev` is the quick way to close the URL, and it stops all traffic. Re-promoting restores the old code. Both are safe to run twice. If the `cf POST` exits non-zero, the URL may still be open. Run it again, and do not tell Aaron it is closed until it succeeds. Tell Aaron what was rolled back and why. If the only cause was a failed smoke test of a bad test issue, fix the issue and re-run step 4. Do not roll back for it.
 
 ### Revoke one token
 
