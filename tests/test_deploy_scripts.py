@@ -249,6 +249,22 @@ class SmokeCommandTests(unittest.TestCase):
         finally:
             copy.unlink(missing_ok=True)
 
+    def test_it_refuses_a_symlink_that_leads_into_a_repository(self) -> None:
+        copy = ROOT / "tests" / "smoke-should-not-exist-linked.json"
+        link = Path(self.tmp.name) / "alias.json"
+        try:
+            shutil.copy(self.file, copy)
+            copy.chmod(0o600)
+            link.symlink_to(copy)
+            done = run(SMOKE, "--url", f"http://127.0.0.1:{self.port}/mcp", "--tokens-file", str(link), "--issue", "5")
+            self.assertEqual(done.returncode, 2, done.stdout + done.stderr)
+            self.assertIn("git work tree", done.stderr)
+            for token in self.tokens:
+                self.assertNotIn(token, done.stdout + done.stderr)
+        finally:
+            link.unlink(missing_ok=True)
+            copy.unlink(missing_ok=True)
+
     def test_it_needs_a_url_a_file_and_an_issue(self) -> None:
         for args in ([], ["--url", "https://example.com/mcp"], ["--tokens-file", str(self.file), "--issue", "x", "--url", "https://example.com/mcp"]):
             self.assertEqual(run(SMOKE, *args).returncode, 2, args)

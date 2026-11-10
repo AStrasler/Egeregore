@@ -20,7 +20,7 @@
 // Needs Node 22.6 or later, like check-agent-tokens.mjs.
 
 import { execFileSync } from "node:child_process";
-import { readFileSync, statSync } from "node:fs";
+import { readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { parseReply, runSmoke } from "./smoke-lib.ts";
 
@@ -66,7 +66,12 @@ function checkUrl(text) {
 }
 
 function readTokens(file) {
-  const path = resolve(file);
+  let path;
+  try {
+    path = realpathSync(resolve(file)); // follow symlinks, so the work-tree check looks at the real file
+  } catch {
+    fail("--tokens-file does not exist");
+  }
   let info;
   try {
     info = statSync(path);
