@@ -146,11 +146,13 @@ class ProvisionTests(unittest.TestCase):
 
     def test_it_never_overwrites(self) -> None:
         self.assertEqual(self.provision().returncode, 0)
-        before = (self.out / "agent-tokens.private.json").read_text()
+        names = ("agent-tokens.private.json", "agent-tokens.records.json")
+        before = {name: (self.out / name).read_text() for name in names}
         done = self.provision()
         self.assertNotEqual(done.returncode, 0)
         self.assertIn("already exists", done.stderr)
-        self.assertEqual((self.out / "agent-tokens.private.json").read_text(), before)
+        for name in names:
+            self.assertEqual((self.out / name).read_text(), before[name], name)
 
     def test_it_refuses_a_directory_inside_a_git_work_tree_or_a_loose_one(self) -> None:
         inside = ROOT / "tests" / "should-not-exist-secrets"
