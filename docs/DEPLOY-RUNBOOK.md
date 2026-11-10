@@ -60,7 +60,7 @@ This step reads the Cloudflare credential, so it starts only after the prerequis
 set +x
 cd "$(git rev-parse --show-toplevel)"           # a checkout of main at the commit being released
 git rev-parse HEAD                              # record this SHA; it is the commit to release
-node --version                                  # 22.6 or later
+node --version                                  # 22.12 or later, the Worker's engines.node
 (cd worker && npm ci)                           # exact versions from the lockfile
 wr() { (cd worker && npx wrangler "$@"); }      # run wrangler from worker/, where wrangler.jsonc is
 
