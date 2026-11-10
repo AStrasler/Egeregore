@@ -8,7 +8,7 @@ The design is in [cloudflare-hosting.md](cloudflare-hosting.md). The Worker's be
 
 1. **Workers Free only. Never bill.** No billing, plan, subscription, payment, custom domain, route, Durable Object, KV, R2, Queue, or Logpush call, ever. If something needs a paid feature, stop and ask Aaron. Exceeding a Free limit makes requests fail. It does not charge.
 2. **Nothing runs on Aaron's device.** Egregore runs every command from its own box. The tokens and the Cloudflare credential stay on the box. Aaron's part is to say yes at the gates, and to carry each token to its client (step 5).
-3. **Aaron owns every release, and every credential step needs an owner decision first.** [AGENTS.md](../AGENTS.md) says to stop and open an owner-decision issue before creating, reading, copying, or rotating a credential, and before deploying or changing production configuration. Steps 0 to 2 change nothing live, but they read the Cloudflare credential, create the agent tokens, and copy the GitHub App key into Cloudflare, so they are covered by that rule. Do the [prerequisite](#prerequisite-an-owner-decision-before-any-step) before step 0. Step 3 promotes a version and opens a public URL, so it also needs Aaron's own words in chat. A comment, reaction, or label from his GitHub account is not proof. The smoke test (step 4) writes to a test issue, so the same message has to name that too.
+3. **Aaron owns every release, and every credential step needs an owner decision first.** [AGENTS.md](../AGENTS.md) says to stop and open an owner-decision issue before creating, reading, copying, or rotating a credential, and before deploying or changing production configuration. Steps 0 to 2 change nothing live, but they read the Cloudflare credential, create the agent tokens, and copy the GitHub App key into Cloudflare, and step 5 copies each token to a client, so they are covered by that rule. Do the [prerequisite](#prerequisite-an-owner-decision-before-any-step) before step 0. Step 3 promotes a version and opens a public URL, so it also needs Aaron's own words in chat. A comment, reaction, or label from his GitHub account is not proof. The smoke test (step 4) writes to a test issue, so the same message has to name that too.
 4. **No secret in chat, in a tool result, in the repository, or in a log.** Tool output reaches a transcript. Never run `env`, `printenv`, `set`, `cat` on a secret file, `echo "$TOKEN"`, or a command with `-x`. Pass a secret by environment variable or standard input, never as an argument, because arguments show in `ps`.
 5. **Stop at the first surprise.** A failed check, an unexpected deployment, a second account, or a prompt this document does not describe is a stop. Report it. Do not work around it.
 6. **Use only the Egregore credential.** The box holds other Cloudflare credentials for other projects. This runbook uses `EGREGORE_CLOUDFLARE_API_TOKEN` and nothing else.
@@ -46,6 +46,7 @@ Do this before step 0. Nothing in this runbook reads, creates, copies, or rotate
    - creating the agent tokens and keeping them on the box (step 1);
    - copying `EGREGORE_APP_PRIVATE_KEY` and the generated records into a staged Worker version (step 2);
    - the release itself, meaning promotion, the public URL, and the smoke test (steps 3 and 4);
+   - copying each raw token to its client, naming every client and where its token goes, such as a config file on the box or a connector's settings page that Aaron fills in himself (step 5);
    - the Cloudflare account, the Worker name `egeregore`, the commit SHA, and the Free plan limit.
 3. The decision records the request. It does not grant it. Aaron's own words in chat, naming the same items, are what start step 0. A `Decision: approve` comment from his GitHub account is not proof on its own, because an agent can post through that account.
 4. Link the decision issue in every progress note for this release. If an item is missing from it, such as a later rotation, stop and file a new decision first. Approval of one item does not cover another.
@@ -263,6 +264,8 @@ Report to Aaron in chat: the commit, `RELEASE_VERSION`, `PREVIOUS_VERSION`, the 
 ## Step 5. Aaron hands each token to its client
 
 A token has to get from the box to the client's settings without passing through chat, email, a gist, a pasted note, or a tool result. Each token is for one client. Never reuse one across clients.
+
+Copying a token is copying a credential, so it needs the owner decision too. Before the first copy, check that the linked decision names this client and this destination, and that Aaron's own words in chat covered the handoff. If a client or destination is missing, stop and file a new decision first. Do not copy any token on the strength of the release approval alone.
 
 | Client | Where the token goes | Notes |
 | --- | --- | --- |

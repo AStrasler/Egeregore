@@ -302,6 +302,13 @@ class RunbookDecisionTests(unittest.TestCase):
         step0 = self.text[self.text.index("## Step 0."):self.text.index("## Step 1.")]
         self.assertIn("starts only after the prerequisite", step0)
 
+    def test_the_token_handoff_is_in_the_decision_and_gated_in_step_five(self) -> None:
+        section = self.text[self.text.index("## Prerequisite: an owner decision before any step"):self.text.index("## Step 0.")]
+        self.assertIn("copying each raw token to its client", section)
+        step5 = self.text[self.text.index("## Step 5."):self.text.index("## Step 6.")]
+        self.assertIn("Copying a token is copying a credential", step5)
+        self.assertIn("names this client and this destination", step5)
+
     def test_rotation_and_revocation_need_their_own_decision(self) -> None:
         step6 = self.text[self.text.index("## Step 6."):]
         self.assertIn("needs an owner decision", step6)
