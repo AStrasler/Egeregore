@@ -258,7 +258,7 @@ export async function runSmoke(options: SmokeOptions): Promise<Report> {
   if (writers.length > 0) {
     cleanup.push(`Close test issue #${issue}. The Worker has no close tool, and the claim, progress and renewal comments stay on it.`);
   }
-  if (options.pull !== undefined && writes) {
+  if (reviewed) {
     cleanup.push(`Pull request #${options.pull} has a review-request comment from the Worker's GitHub App. Close that pull request if it was only a test.`);
   }
 

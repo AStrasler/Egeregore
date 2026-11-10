@@ -94,6 +94,19 @@ describe("smoke test against the real Worker with a fake GitHub", () => {
     expect(report.checks.some((check) => check.status === "skip" && check.name.startsWith("cursor"))).toBe(true);
   });
 
+  it("mentions the review-request comment in the cleanup only when one was requested", async () => {
+    const withoutReview = await setup([{ agent: "cursor", permissions: ["read", "write"] }]);
+    const noReview = await runSmoke({ post: withoutReview.post, tokens: withoutReview.entries, issue: 1, pull: 2 });
+    expect(failures(noReview)).toEqual([]);
+    expect(withoutReview.github.writes.filter((call) => call.path.endsWith("/issues/2/comments"))).toHaveLength(0);
+    expect(noReview.cleanup.join(" ")).not.toContain("review-request comment");
+
+    const withReview = await setup([{ agent: "cursor", permissions: ["read", "write", "review"] }]);
+    const reviewed = await runSmoke({ post: withReview.post, tokens: withReview.entries, issue: 1, pull: 2 });
+    expect(failures(reviewed)).toEqual([]);
+    expect(reviewed.cleanup.join(" ")).toContain("Pull request #2 has a review-request comment");
+  });
+
   it("makes no write with --no-write or without a pull number", async () => {
     const { github, entries, post } = await setup([{ agent: "cursor", permissions: ["read", "write", "review"] }]);
     const report = await runSmoke({ post, tokens: entries, issue: 1, write: false });
