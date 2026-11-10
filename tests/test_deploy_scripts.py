@@ -142,6 +142,7 @@ class ProvisionTests(unittest.TestCase):
             done = self.provision("--plan", str(plan))
             self.assertNotEqual(done.returncode, 0, entry)
             self.assertFalse((self.out / "agent-tokens.private.json").exists(), entry)
+            self.assertFalse((self.out / "agent-tokens.records.json").exists(), entry)
 
     def test_it_never_overwrites(self) -> None:
         self.assertEqual(self.provision().returncode, 0)
