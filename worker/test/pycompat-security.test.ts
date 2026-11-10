@@ -7,7 +7,7 @@ describe("Python-compatible bounded whitespace stripping", () => {
       ...Array.from({ length: 11 }, (_, i) => 8192 + i), 8232, 8233, 8239, 8287, 12288];
     for (const code of codes) {
       const char = String.fromCodePoint(code);
-      expect(pyStrip(`${char}??text??${char}`)).toBe("??text??");
+      expect(pyStrip(`${char}🌈text🌈${char}`)).toBe("🌈text🌈");
       expect(pyStrip(char.repeat(3))).toBe("");
     }
     expect(pyStrip(" \ufefftext\ufeff ")).toBe("\ufefftext\ufeff");
@@ -22,4 +22,3 @@ describe("Python-compatible bounded whitespace stripping", () => {
     }
   });
 });
-
