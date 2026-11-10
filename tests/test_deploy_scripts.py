@@ -287,6 +287,15 @@ class RunbookDecisionTests(unittest.TestCase):
         step6 = self.text[self.text.index("## Step 6."):]
         self.assertIn("needs an owner decision", step6)
 
+    def test_credential_commands_fail_closed(self) -> None:
+        step0 = self.text[self.text.index("## Step 0."):self.text.index("## Step 1.")]
+        self.assertIn("set -o pipefail", step0)
+        self.assertIn("curl -q ", step0, "-q must come first so ~/.curlrc cannot trace the header")
+        self.assertIn("22.12 or later", step0)
+        staging = self.text[self.text.index("## Step 2."):self.text.index("## Gate.")]
+        self.assertIn("EGREGORE_APP_PRIVATE_KEY | need", staging)
+        self.assertIn("EGREGORE_APP_ID_VALUE | need", staging)
+
     def test_revocation_goes_by_a_checked_unique_label(self) -> None:
         self.assertIn("length == 1", self.text)
         self.assertIn("length == (unique | length)", self.text)
