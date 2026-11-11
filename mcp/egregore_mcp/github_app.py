@@ -285,6 +285,23 @@ class GitHubAppAuth:
                 )
         return names
 
+    def _checked_api_url(self, url: str) -> str:
+        base = urllib.parse.urlsplit(self.api)
+        target = urllib.parse.urlsplit(url)
+        base_path = base.path.rstrip("/")
+        path_is_scoped = not base_path or target.path == base_path or target.path.startswith(base_path + "/")
+        if (
+            base.scheme not in {"http", "https"}
+            or target.scheme != base.scheme
+            or target.netloc.lower() != base.netloc.lower()
+            or target.username is not None
+            or target.password is not None
+            or target.fragment
+            or not path_is_scoped
+        ):
+            raise GitHubAppError(502, "GitHub pagination URL escaped the configured API base")
+        return url
+
     def _http(
         self,
         method: str,
@@ -293,6 +310,7 @@ class GitHubAppAuth:
         bearer: str,
         body: Mapping[str, object] | None = None,
     ) -> tuple[object, str | None]:
+        url = self._checked_api_url(url)
         self._remember(bearer)
         data = None if body is None else json.dumps(body).encode("utf-8")
         request = urllib.request.Request(url, data=data, method=method)
