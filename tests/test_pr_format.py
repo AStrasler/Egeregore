@@ -306,6 +306,22 @@ class ChangedFilesTests(unittest.TestCase):
             self.assertIsNone(pf.changed_files("a", "b", cwd=tmp), "not a repository")
 
 
+    def test_option_like_revisions_are_rejected_before_git_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            git(tmp, "init", "-q", "-b", "main")
+            git(tmp, "commit", "-q", "--allow-empty", "-m", "init")
+            for base, head in (
+                ("--output=injected.out", "HEAD"),
+                ("HEAD", "--output=injected.out"),
+                ("-p", "HEAD"),
+                ("main\nHEAD", "HEAD"),
+                ("main HEAD", "HEAD"),
+            ):
+                with self.subTest(base=base, head=head):
+                    self.assertIsNone(pf.changed_files(base, head, cwd=tmp))
+            self.assertEqual(os.listdir(tmp), [".git"], "no file may be created by an injected option")
+
+
 class MainTests(unittest.TestCase):
     def run_main(self, event, *extra: str, summary: bool = True) -> tuple[int, str, str]:
         with tempfile.TemporaryDirectory() as tmp:
