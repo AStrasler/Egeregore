@@ -7,7 +7,7 @@ import io
 import json
 import os
 import re
-import subprocess  # nosec B404
+import subprocess
 import sys
 import tempfile
 import unittest
