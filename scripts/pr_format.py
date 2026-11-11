@@ -20,7 +20,7 @@ import argparse
 import json
 import os
 import re
-import subprocess
+import subprocess  # nosec B404
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path

@@ -12,7 +12,7 @@ import difflib
 import json
 import os
 import re
-import subprocess
+import subprocess  # nosec B404
 import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
