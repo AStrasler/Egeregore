@@ -7,7 +7,7 @@ import io
 import json
 import os
 import re
-import subprocess
+import subprocess  # nosec B404
 import sys
 import tempfile
 import unittest
@@ -1349,12 +1349,11 @@ class RepoPolicyTests(unittest.TestCase):
                 "pullfrog/pullfrog@0613df0079954102a9727e833b1e4da229b8f440",
             ],
         )
-        self.assertEqual(
-            permission_lines(workflow),
-            [
-                "id-token: write", "contents: write", "pull-requests: write",
-                "issues: write", "actions: read", "checks: read",
-            ],
+        self.assertEqual(permission_lines(workflow), [])
+        self.assertIn("permissions: {}\n", workflow)
+        self.assertIn(
+            "jobs:\n  pullfrog:\n    permissions:\n      contents: read\n      id-token: write\n    runs-on:",
+            workflow,
         )
 
     def test_readme_and_apache_license_are_present(self) -> None:
