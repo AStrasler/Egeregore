@@ -20,7 +20,7 @@ import argparse
 import json
 import os
 import re
-import subprocess
+import subprocess  # nosec B404
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -234,13 +234,20 @@ def render(result: Result) -> str:
     return "\n".join(lines)
 
 
+# A revision is a plain SHA/ref name. Anything starting with "-" would be parsed by
+# git as an option (e.g. "--output=FILE"), so it is rejected before git runs.
+_SAFE_REV = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_./@{}^~-]*")
+
+
 def changed_files(base: str, head: str, cwd: str | None = None) -> list[str] | None:
     """Paths changed on `head` since it left `base` (merge base). None on any failure."""
     if not base or not head:
         return None
+    if not (_SAFE_REV.fullmatch(base) and _SAFE_REV.fullmatch(head)):
+        return None
     try:
-        out = subprocess.run(
-            ["git", "diff", "--name-only", "--no-renames", "-z", f"{base}...{head}"],
+        out = subprocess.run(  # nosec B603 - fixed argv, validated revisions, no shell
+            ["git", "diff", "--name-only", "--no-renames", "-z", f"{base}...{head}", "--"],
             cwd=cwd,
             capture_output=True,
             check=False,

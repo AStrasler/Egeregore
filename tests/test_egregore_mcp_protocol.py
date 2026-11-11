@@ -7,7 +7,7 @@ import asyncio
 import json
 import os
 import socket
-import subprocess
+import subprocess  # nosec B404
 import sys
 import time
 import unittest

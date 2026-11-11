@@ -26,7 +26,7 @@ import json
 import logging
 import os
 import re
-import subprocess
+import subprocess  # nosec B404
 import sys
 import threading
 import traceback
