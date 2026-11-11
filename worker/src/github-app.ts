@@ -179,18 +179,19 @@ export function checkPermissions(granted: unknown): void {
       continue;
     }
     const level = String(value);
-    if (!(name in REQUESTED_PERMISSIONS)) {
+    if (!Object.hasOwn(REQUESTED_PERMISSIONS, name)) {
       problems.push(`${name}:${level}`);
       continue;
     }
-    const granted = LEVELS[level];
-    const ceiling = LEVELS[REQUESTED_PERMISSIONS[name]];
-    if (granted === undefined || granted > ceiling) {
+    const needed = REQUESTED_PERMISSIONS[name];
+    const grantedLevel = Object.hasOwn(LEVELS, level) ? LEVELS[level] : undefined;
+    const ceiling = Object.hasOwn(LEVELS, needed) ? LEVELS[needed] : undefined;
+    if (grantedLevel === undefined || ceiling === undefined || grantedLevel > ceiling) {
       problems.push(`${name}:${level}`);
     }
   }
   for (const [name, needed] of Object.entries(REQUESTED_PERMISSIONS)) {
-    const actual = map[name];
+    const actual = Object.hasOwn(map, name) ? map[name] : undefined;
     if (actual !== undefined && actual !== null && String(actual) === needed) {
       continue;
     }
