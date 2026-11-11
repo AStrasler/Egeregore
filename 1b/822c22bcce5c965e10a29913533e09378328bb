@@ -1,0 +1,16 @@
+scripts/pr_format.py
+  h_43bd93ed2f90ff 237-241,246-247,249-250
+tests/test_pr_format.py
+  h_43bd93ed2f90ff 309-324
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1b822c22bcce5c965e10a29913533e09378328bb",
+  "prompts": {},
+  "humans": {
+    "h_43bd93ed2f90ff": {
+      "author": "Aaron Strasler <Aaron.M.Strasler@outlook.com>"
+    }
+  }
+}
