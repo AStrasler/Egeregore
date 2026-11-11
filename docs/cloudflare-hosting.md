@@ -5,7 +5,7 @@ Status: design only. This document deploys nothing, creates no secret, changes n
 Aaron approved starting the port on the Workers **Free** plan, in a Cloudflare account used only for Egregore. Two rules sit above everything below:
 
 1. **Never charge anything.** No billing change, no paid plan, no custom domain, no paid feature. If the Free plan is too small, stop and ask Aaron. Do not upgrade to make a test pass.
-2. **Aaron owns every release.** Nothing is deployed, promoted, enabled on `workers.dev`, or given a secret without Aaron's own words. A comment from his account is not proof he approved.
+2. **Aaron owns every release.** Nothing is promoted or enabled on `workers.dev` without Aaron's own words. A comment from his account is not proof he approved. Egregore may stage secrets on a new, undeployed version from its own box, because a staged version is not live. The procedure is [DEPLOY-RUNBOOK.md](DEPLOY-RUNBOOK.md).
 
 ## Decision
 
@@ -56,7 +56,7 @@ Assets: the GitHub App private key, the agent tokens, the integrity of task stat
 | 2 | An agent token is stolen. | Tokens are 256 bits of randomness, shown once, and stored only as SHA-256 hashes. Each token is its own record, so one can be revoked alone, and each record limits the permissions, tools and repositories it may use. A token can do only what the MCP tools allow: write issue comments and labels on `Egeregore`. It cannot merge, deploy, change settings, or approve. | The holder can act as that agent until the hash is removed. Rotation is a secret update by Aaron. |
 | 3 | An agent pretends to be another agent or role. | The agent identity comes from the token record. No tool takes an `agent` argument, and an extra one is ignored. A token may act only as the one agent in its record, and never as `aaron`. | None beyond 2. |
 | 4 | An agent approves its own work. | There is no merge or approve tool. `Decision:` comments are honored only from Aaron's own GitHub account by the existing issue-hygiene workflow. A comment by `egregore-coordinator[bot]` is never approval. | Aaron pasting a decision for an agent. His call. |
-| 5 | The GitHub App private key leaks. | The key is a Worker secret, set by Aaron with `wrangler secret put`. It is never in the repo, a log, a tool result, or an error message. The Worker requests tokens with `repositories: ["Egeregore"]` and the permissions `issues:write`, `pull_requests:read`, `metadata:read` only, and checks the response, as the Python server does. | The key itself is not limited to one repository. The app is installed on all of Aaron's repositories, so whoever holds the key can mint a token for any of them, with Issues write and Pull requests read. Narrowing the installation to `Egeregore` is Aaron's decision. This design does not assume it. |
+| 5 | The GitHub App private key leaks. | The key is a Worker secret. Egregore stages it from its box onto an undeployed version with `wrangler versions secret bulk`, never `wrangler secret put`, which deploys at once. It goes in on standard input and is never an argument. Aaron's sign-off promotes the version. It is never in the repo, a log, a tool result, or an error message. The Worker requests tokens with `repositories: ["Egeregore"]` and the permissions `issues:write`, `pull_requests:read`, `metadata:read` only, and checks the response, as the Python server does. | The key itself is not limited to one repository. The app is installed on all of Aaron's repositories, so whoever holds the key can mint a token for any of them, with Issues write and Pull requests read. Narrowing the installation to `Egeregore` is Aaron's decision. This design does not assume it. |
 | 6 | Prompt injection: text in an issue tells an agent to do something unsafe. | Tool results are data, not instructions. The server has no merge, deploy, settings, or approval tool, so the worst an injected agent can do is write issue comments. The existing `AGENTS.md` rules still apply to each agent. | Misleading comments in a public repo. Reviewable and reversible. |
 | 7 | A browser page calls the server (DNS rebinding, cross-site request). | The handler validates `Origin` and `Host`. CORS is off unless a client needs it. Bearer tokens are not cookies, so a browser does not attach them on its own. | None expected. |
 | 8 | Secrets reach logs or errors. | Observability and logpush stay off. The code never logs headers, token values, or request bodies. Errors return a short code, not upstream text that could echo a token. | A future change that logs. Review catches it. |
@@ -69,7 +69,7 @@ Assets: the GitHub App private key, the agent tokens, the integrity of task stat
 
 ### Per-agent bearer tokens (first release)
 
-- Each token is 32 random bytes, base64url, made by Aaron on his machine with `worker/scripts/generate-agent-token.mjs`. It is shown once and handed to that agent's client config. It is never committed. An agent may hold several tokens at once, so a rotation has no gap.
+- Each token is 32 random bytes, base64url, made on Egregore's box with `worker/scripts/generate-agent-token.mjs` (the runbook runs it through `provision-agent-tokens.mjs`), and kept only in an owner-only file outside the repository. Aaron hands it to that agent's client without passing it through chat. It is never committed. An agent may hold several tokens at once, so a rotation has no gap.
 - The Worker holds a secret `EGREGORE_AGENT_TOKENS`: a JSON array with one record per token. Only SHA-256 hashes are stored. A high-entropy random token does not need a slow hash, and a slow one would burn the 10 ms CPU budget. One SHA-256 per request is a few microseconds.
 - A record has these fields, and no others:
 
@@ -89,7 +89,7 @@ Assets: the GitHub App private key, the agent tokens, the integrity of task stat
 - This deviates from the first draft of this section, which had the Worker answer HTTP 401 before reading the body. The Worker now answers in the tool envelope, as the Python server does, so a client sees one error shape. The cost is that the body is parsed before the refusal. Parsing is cheap and `initialize` and `tools/list` expose only fixed metadata.
 - Revoke by removing one record and updating the secret. Rotate by adding a record, switching the client, then removing the old one.
 - The 5 KB limit on a Free-plan variable is far above what a few records need. The Worker accepts up to 16 KiB.
-- Setup steps for Aaron are in `worker/README.md`. The model comes from egregore-labs/egregore at d570d10, rewritten here. See `THIRD_PARTY_NOTICES.md`.
+- Setup steps are in [DEPLOY-RUNBOOK.md](DEPLOY-RUNBOOK.md) and `worker/README.md`. The model comes from egregore-labs/egregore at d570d10, rewritten here. See `THIRD_PARTY_NOTICES.md`.
 
 ### OAuth (later, only if needed)
 
@@ -98,7 +98,7 @@ Some hosted clients, ChatGPT among them, may only connect to a remote MCP server
 ## GitHub App key as a Worker secret
 
 - Secrets: `EGREGORE_APP_PRIVATE_KEY` and `EGREGORE_AGENT_TOKENS`. Plain variables (not secret): `EGREGORE_APP_ID` (`5503558`), `EGREGORE_REPO` (`AStrasler/Egeregore`).
-- **Aaron sets secrets himself**, in the dashboard or with `wrangler secret put`. The coordinator does not set, read, or print them.
+- **Egregore stages the secrets from its own box, and Aaron approves the release.** `wrangler versions secret bulk` puts them on a new version that is not live. Promoting that version is Aaron's gate. Nothing prints a secret, and nothing sets one without the runbook's checks. `EGREGORE_APP_ID` is a number, not sensitive, but the runbook sets it with the secrets, because `wrangler.jsonc` carries no variables and a secret survives later uploads.
 - The Worker signs a short RS256 JWT with WebCrypto, then calls `POST /app/installations/{id}/access_tokens` with `repositories: ["Egeregore"]` and the three permissions. It refuses to proceed if the response lists another repository or a wider permission. This is the same check as `mcp/egregore_mcp`.
 - WebCrypto imports PKCS#8 keys. GitHub gives a PKCS#1 (`BEGIN RSA PRIVATE KEY`) key. Either convert the key once to PKCS#8 before storing it, or wrap it at runtime. The code, not this document, will pick one.
 - An installation token lasts one hour. The Worker may keep it in memory inside one isolate to save a subrequest. That is a cache, not state of record. A cold isolate mints a new one.
@@ -155,7 +155,7 @@ Each is small, reviewed by Codex, and merged only by Aaron. A merge deploys noth
 | 4 | The write tools: `claim_task`, `renew_lease`, `post_progress`, `handoff_task`, `request_review`, `release_task`. All the Python rules and tests ported, including `lease_conflict`, `lease_expired`, `wrong_role`, `not_claimable`, and the no-merge boundary. Delivered as two pull requests: 4a ports the six write tools and records them against the Python server as parity stories; 4b adds the handoff lifecycle rules and the scan-then-apply stale-plan check. The lifecycle rules run in the daily lease-watch workflow, which stays Python in GitHub Actions and is not moved into the Worker. The Worker gets the stale-plan check on the done gate (`stale_plan`). | Not reachable: no auth yet. |
 | 5 | Per-agent hashed bearer tokens and a fail-closed permission model (`read`, `write`, `review`, a tool allow-list and a repository allow-list). Identity from the token, no `agent` argument. Tests for missing, wrong, cross-agent and under-privileged tokens. A local script makes tokens and checks the config. With no secret set, every tool still answers `unauthenticated`. | Required before anything is reachable. |
 | 6 | Optional OAuth with GitHub login, only if a client needs it. | A separate decision by Aaron. |
-| 7 | Go live: Aaron sets the secrets and approves a release. The same smoke test used against the local server runs against the Worker. Cleanup. | Aaron's explicit approval. |
+| 7 | Go live, following [DEPLOY-RUNBOOK.md](DEPLOY-RUNBOOK.md): Egregore stages the secrets from its box, Aaron approves the release, a smoke test (`worker/scripts/smoke-test.mjs`) runs against the Worker, Aaron hands each token to its client. Cleanup. | Aaron's explicit approval. |
 
 Nothing is promoted or given a public URL before PR 5 is merged and Aaron approves PR 7.
 
