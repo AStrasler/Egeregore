@@ -15,13 +15,7 @@ on:
         type: string
         required: false
 
-permissions:
-  id-token: write
-  contents: write
-  pull-requests: write
-  issues: write
-  actions: read
-  checks: read
+permissions: {}
 
 concurrency:
   group: pullfrog-${{ github.repository }}
@@ -29,6 +23,9 @@ concurrency:
 
 jobs:
   pullfrog:
+    permissions:
+      contents: read
+      id-token: write
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
