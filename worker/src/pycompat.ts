@@ -13,12 +13,18 @@ export const WORD_START = "(?<![\\p{L}\\p{N}_])";
 /** Python's \b after a word character, as a lookahead. Needs the u flag. */
 export const WORD_END = "(?![\\p{L}\\p{N}_])";
 
-const STRIP_RE = new RegExp(`^[${PY_WS}]+|[${PY_WS}]+$`, "gu");
+const STRIP_CHARACTER_RE = new RegExp(`[${PY_WS}]`, "u");
 const LINE_BREAK_RE = /\r\n|[\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029]/u;
 
 /** str.strip() */
 export function pyStrip(value: string): string {
-  return value.replace(STRIP_RE, "");
+  // Inspect endpoints once. A trailing-whitespace regex repeatedly rescans an
+  // internal whitespace run followed by nonspace, taking quadratic time.
+  let start = 0;
+  let end = value.length;
+  while (start < end && STRIP_CHARACTER_RE.test(value.charAt(start))) start += 1;
+  while (end > start && STRIP_CHARACTER_RE.test(value.charAt(end - 1))) end -= 1;
+  return value.slice(start, end);
 }
 
 /** str.splitlines(): splits on every Python line boundary and drops one trailing empty piece. */
