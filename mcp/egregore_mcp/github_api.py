@@ -138,7 +138,25 @@ class RestGitHub:
             return flat
         raise GitHubError(502, "GitHub HTTP 502: paginated response was not a list")
 
+    def _checked_api_url(self, url: str) -> str:
+        base = urllib.parse.urlsplit(self.api)
+        target = urllib.parse.urlsplit(url)
+        base_path = base.path.rstrip("/")
+        path_is_scoped = not base_path or target.path == base_path or target.path.startswith(base_path + "/")
+        if (
+            base.scheme not in {"http", "https"}
+            or target.scheme != base.scheme
+            or target.netloc.lower() != base.netloc.lower()
+            or target.username is not None
+            or target.password is not None
+            or target.fragment
+            or not path_is_scoped
+        ):
+            raise GitHubError(502, "GitHub pagination URL escaped the configured API base")
+        return url
+
     def _once(self, method: str, url: str, body: Mapping[str, object] | None) -> tuple[object, str | None]:
+        url = self._checked_api_url(url)
         data = None if body is None else json.dumps(body).encode("utf-8")
         request = urllib.request.Request(url, data=data, method=method)
         request.add_header("Authorization", f"Bearer {self._bearer()}")
