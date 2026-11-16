@@ -28,7 +28,7 @@ from typing import Callable, Mapping
 
 import jwt
 
-from egregore_mcp.github_api import GitHubError
+from egregore_mcp.github_api import GitHubError, checked_api_url, open_no_redirect
 from egregore_mcp.redaction import redact_secrets
 
 # Do not add permissions. issues:write covers claims, comments, and labels.
@@ -286,21 +286,10 @@ class GitHubAppAuth:
         return names
 
     def _checked_api_url(self, url: str) -> str:
-        base = urllib.parse.urlsplit(self.api)
-        target = urllib.parse.urlsplit(url)
-        base_path = base.path.rstrip("/")
-        path_is_scoped = not base_path or target.path == base_path or target.path.startswith(base_path + "/")
-        if (
-            base.scheme not in {"http", "https"}
-            or target.scheme != base.scheme
-            or target.netloc.lower() != base.netloc.lower()
-            or target.username is not None
-            or target.password is not None
-            or target.fragment
-            or not path_is_scoped
-        ):
-            raise GitHubAppError(502, "GitHub pagination URL escaped the configured API base")
-        return url
+        try:
+            return checked_api_url(self.api, url)
+        except ValueError:
+            raise GitHubAppError("GitHub pagination URL escaped the configured API base", status=502) from None
 
     def _http(
         self,
@@ -321,7 +310,7 @@ class GitHubAppAuth:
         if data is not None:
             request.add_header("Content-Type", "application/json")
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
+            with open_no_redirect(request, timeout=30) as response:
                 raw = response.read()
                 link = response.headers.get("Link")
         except urllib.error.HTTPError as err:
