@@ -21,7 +21,7 @@
 
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -76,11 +76,16 @@ function nearestExisting(path) {
 function insideGitWorkTree(path) {
   try {
     const out = execFileSync("git", ["-C", nearestExisting(path), "rev-parse", "--is-inside-work-tree"], {
-      stdio: ["ignore", "pipe", "ignore"],
+      stdio: ["ignore", "pipe", "pipe"],
     });
-    return out.toString().trim() === "true";
-  } catch {
-    return false; // not a work tree, or git is not installed
+    const result = out.toString().trim();
+    if (result === "true") return true;
+    if (result === "false") return false;
+    fail("Could not verify whether --out-dir is inside a git work tree");
+  } catch (error) {
+    const stderr = String(error?.stderr ?? "");
+    if (error?.status === 128 && /not a git repository/i.test(stderr)) return false;
+    fail("Could not verify whether --out-dir is inside a git work tree");
   }
 }
 
@@ -110,6 +115,12 @@ function loadPlan(file) {
   }
   const tokens = Array.isArray(plan) ? plan : plan?.tokens;
   if (!Array.isArray(tokens) || tokens.length === 0) fail("--plan must be a non-empty array, or {\"tokens\": [...]}");
+  if (tokens.some((entry) => entry === null || typeof entry !== "object" || Array.isArray(entry))) {
+    fail("--plan entries must be objects");
+  }
+  if (tokens.some((entry) => entry.label !== undefined && (typeof entry.label !== "string" || entry.label.trim() === ""))) {
+    fail("--plan labels must be non-empty strings");
+  }
   return tokens;
 }
 
@@ -170,10 +181,30 @@ const labels = records.map((record) => record.label);
 if (new Set(labels).size !== labels.length) fail("two tokens in the plan have the same label. Labels must be unique, so a token can be retired alone. Nothing was written.");
 const verdict = checkWithWorkerParser(records);
 
-writeFileSync(recordsPath, `${JSON.stringify(records, null, 2)}\n`, { mode: 0o600, flag: "wx" });
-writeFileSync(privatePath, `${JSON.stringify({ version: 1, tokens: made.map((item) => item.private) }, null, 2)}\n`, {
-  mode: 0o600,
-  flag: "wx",
-});
+const suffix = randomBytes(8).toString("hex");
+const recordsTemp = join(dir, `.agent-tokens.records.json-${suffix}.tmp`);
+const privateTemp = join(dir, `.agent-tokens.private.json-${suffix}.tmp`);
+let recordsPublished = false;
+let privatePublished = false;
+try {
+  writeFileSync(recordsTemp, `${JSON.stringify(records, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+  writeFileSync(privateTemp, `${JSON.stringify({ version: 1, tokens: made.map((item) => item.private) }, null, 2)}\n`, {
+    mode: 0o600,
+    flag: "wx",
+  });
+  // Link publication is atomic and will not overwrite an existing path.
+  linkSync(recordsTemp, recordsPath);
+  recordsPublished = true;
+  linkSync(privateTemp, privatePath);
+  privatePublished = true;
+} catch {
+  if (privatePublished) unlinkSync(privatePath);
+  if (recordsPublished) unlinkSync(recordsPath);
+  if (existsSync(recordsTemp)) unlinkSync(recordsTemp);
+  if (existsSync(privateTemp)) unlinkSync(privateTemp);
+  fail("Could not publish both token files; temporary and partial outputs were removed.");
+}
+unlinkSync(recordsTemp);
+unlinkSync(privateTemp);
 
 process.stdout.write(`${verdict}Wrote ${made.length} token(s). No token was printed.\n  ${privatePath}  (raw tokens, mode 0600)\n  ${recordsPath}  (hashes only, the EGREGORE_AGENT_TOKENS value)\n`);
