@@ -21,7 +21,7 @@ The design is in [cloudflare-hosting.md](cloudflare-hosting.md). The Worker's be
 | Worker | `egeregore` |
 | Plan | Workers Free |
 | Credential | The box secret `EGREGORE_CLOUDFLARE_API_TOKEN`, exported as `CLOUDFLARE_API_TOKEN` for each command |
-| GitHub App | `egregore-coordinator`, ID `5503558`, installed on `AStrasler/Egeregore` only. Its private key is the box secret `EGREGORE_APP_PRIVATE_KEY` |
+| GitHub App | `egregore-coordinator`, ID `5503558`, installed across AStrasler repositories. The key can mint an installation token for any installed repository; this Worker requests tokens scoped to `AStrasler/Egeregore`. Narrowing the installation is a separate owner decision. Its private key is the box secret `EGREGORE_APP_PRIVATE_KEY` |
 | Repository the Worker acts on | `AStrasler/Egeregore` (the default of `EGREGORE_REPO`, so it is not set) |
 
 Worker settings, from `worker/src/index.ts`:
@@ -84,7 +84,7 @@ With `pipefail` on, a `cf` call that fails (no connection, or an HTTP error) mak
 Then read the state:
 
 ```sh
-cf GET /accounts | jq '[.result[].id] | length'                        # expect 1: the token sees only this account (an authorization error is acceptable for a token that cannot list accounts)
+cf GET /accounts | jq '[.result[].id] | length'                        # expect 1; any authorization or parse error stops the runbook
 cf GET "/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/egeregore/subdomain" | jq .result
 wr deployments list --name egeregore                          # what is live now
 wr versions list --name egeregore --json                      # every uploaded version
@@ -172,7 +172,7 @@ jq -n \
 unset EGREGORE_APP_ID_VALUE
 ```
 
-`jq` reads the key from the environment, so it is never an argument. The `need` check makes `jq` stop with an error and print nothing when the key, the ID or the records are unset or empty. That matters because Wrangler deletes a secret whose value is `null`, so an unset `EGREGORE_APP_PRIVATE_KEY` would otherwise stage a version without the App key. With nothing on standard input Wrangler stages no version, and `pipefail` makes the pipeline exit non-zero. Stop if it does. Wrangler reads the JSON from standard input and prints only the names it set. The new version copies the code and settings of the newest uploaded version, so this is why step 0 checks that the newest version is the commit being released. A later `versions upload` from Workers Builds keeps the existing secrets.
+`jq` reads the key from the environment, so it is never an argument. The `need` check makes `jq` stop with an error and print nothing when the key, the ID or the records are unset or empty. That matters because Wrangler deletes a secret whose value is `null`, so an unset `EGREGORE_APP_PRIVATE_KEY` would otherwise stage a version without the App key. With nothing on standard input Wrangler stages no version, and `pipefail` makes the pipeline exit non-zero. Stop if it does. Wrangler reads the JSON from standard input and prints only the names it set. The new version copies the code and settings of the newest uploaded version. After staging, inspect `wr versions view "$RELEASE_VERSION" --name egeregore` and require its commit annotation to match the exact `CODE_VERSION` SHA recorded in step 0. If the annotation is missing or differs, stop: do not promote or open the URL. Workers Builds may upload during staging; this post-stage comparison is the release gate. A later `versions upload` from Workers Builds keeps the existing secrets.
 
 Check that nothing went live:
 
@@ -189,7 +189,7 @@ Record the ID of the new version as `RELEASE_VERSION`. If the live deployment ch
 
 Do not continue without a message from Aaron in chat that says, in his own words, to release. Ask for it with a message that lists exactly what it covers. For example:
 
-> Ready to release the Egregore Worker, commit `<short SHA>`. This will: (1) make version `<RELEASE_VERSION>` the live version, replacing `<PREVIOUS_VERSION>`; (2) turn on `https://egeregore.<subdomain>.workers.dev`; (3) run the smoke test, which opens one throwaway issue in AStrasler/Egeregore, claims and releases it with each agent token, and closes it; (4) make no other change. Workers Free, nothing billed. Reply "release" to go ahead. To undo it, I disable the URL and re-promote `<PREVIOUS_VERSION>`.
+> Ready to release the Egregore Worker, commit `<short SHA>`. This will: (1) make version `<RELEASE_VERSION>` the live version, replacing `<PREVIOUS_VERSION>`; (2) turn on `https://egeregore.<subdomain>.workers.dev`; (3) run the smoke test against throwaway issue `<ISSUE>` and test pull `<PULL>` if review is explicitly requested. I will create the issue before the script and close it afterward; the script claims, posts progress, renews and releases, but does not create or close issues. (4) make no other change. Workers Free, nothing billed. Reply "release" to go ahead. Rollback also changes production and requires its own covered owner decision and Aaron's explicit approval.
 
 Add "and the review check on pull #N" only if Aaron names a test pull request. Anything not listed in that message is not approved. A reply that says "ok" to something else, a GitHub comment, or a reaction is not a yes.
 
@@ -280,7 +280,7 @@ When every client works, keep the raw token file. It is the only copy of the tok
 
 ## Step 6. Rollback, revocation, and rotation
 
-Revoking or rotating a token, the GitHub App key, or the Cloudflare credential is credential handling. Each one needs an owner decision that names it, as in the [prerequisite](#prerequisite-an-owner-decision-before-any-step), unless the decision already linked covers it. A rollback of code, to close the door fast, may start at once. Tell Aaron right after.
+Revoking or rotating a token, the GitHub App key, or the Cloudflare credential is credential handling. Each one needs an owner decision that names it, as in the [prerequisite](#prerequisite-an-owner-decision-before-any-step), unless the decision already linked covers it. A rollback changes production configuration and requires an owner decision that covers the rollback plus Aaron's explicit words in chat before either command runs. If the Worker appears unsafe, stop and notify Aaron; do not bypass the approval gate.
 
 ### Roll back (the Worker misbehaves, or a gate was wrong)
 
