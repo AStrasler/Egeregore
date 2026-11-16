@@ -4,6 +4,7 @@
 //
 //   node --experimental-strip-types worker/scripts/smoke-test.mjs \
 //     --url https://egeregore.<subdomain>.workers.dev/mcp \
+//     --workers-subdomain <subdomain> \\
 //     --tokens-file ~/.egregore-secrets/<dir>/agent-tokens.private.json \
 //     --issue 123 [--pull 124] [--no-write]
 //
@@ -34,12 +35,12 @@ function parse(argv) {
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index];
     if (flag === "--no-write") out.write = false;
-    else if (["--url", "--tokens-file", "--issue", "--pull"].includes(flag)) {
+    else if (["--url", "--workers-subdomain", "--tokens-file", "--issue", "--pull"].includes(flag)) {
       index += 1;
       if (index >= argv.length) fail(`${flag} needs a value`);
       out[flag.slice(2)] = argv[index];
     } else if (flag === "--help" || flag === "-h") {
-      process.stdout.write("Usage: smoke-test.mjs --url URL --tokens-file FILE --issue N [--pull N] [--no-write]\n");
+      process.stdout.write("Usage: smoke-test.mjs --url URL --workers-subdomain NAME --tokens-file FILE --issue N [--pull N] [--no-write]\\n");
       process.exit(0);
     } else fail(`Unknown option ${flag}`);
   }
@@ -51,7 +52,7 @@ const number = (name, value) => {
   return Number(value);
 };
 
-function checkUrl(text) {
+function checkUrl(text, expectedSubdomain) {
   let url;
   try {
     url = new URL(text);
@@ -59,9 +60,11 @@ function checkUrl(text) {
     fail("--url is not a URL");
   }
   const local = url.hostname === "127.0.0.1" || url.hostname === "localhost";
-  const expectedWorker = /^egeregore\.[a-z0-9-]+\.workers\.dev$/.test(url.hostname);
+  const validSubdomain = typeof expectedSubdomain === "string" && /^[a-z0-9-]+$/.test(expectedSubdomain);
+  const expectedWorker = validSubdomain && url.hostname === `egeregore.${expectedSubdomain}.workers.dev`;
   if (url.protocol !== "https:" && !(local && url.protocol === "http:")) fail("--url must be https (http only for localhost)");
-  if (!local && !expectedWorker) fail("--url must be the Egregore workers.dev URL");
+  if (!local && (!expectedSubdomain || !expectedWorker)) fail("--url must match the Egregore Worker host returned by the Cloudflare account");
+  if (url.port !== "") fail("--url must use the default HTTPS port");
   if (url.username !== "" || url.password !== "") fail("--url must not carry credentials");
   if (url.pathname !== "/mcp" || url.search !== "" || url.hash !== "") fail("--url must end in /mcp without a query or fragment");
   return url;
@@ -113,7 +116,7 @@ function readTokens(file) {
 
 const args = parse(process.argv.slice(2));
 if (!args.url || !args["tokens-file"] || !args.issue) fail("--url, --tokens-file and --issue are required");
-const url = checkUrl(args.url);
+const url = checkUrl(args.url, args["workers-subdomain"]);
 const issue = number("--issue", args.issue);
 const pull = args.pull === undefined ? undefined : number("--pull", args.pull);
 const tokens = readTokens(args["tokens-file"]);
