@@ -59,9 +59,11 @@ function checkUrl(text) {
     fail("--url is not a URL");
   }
   const local = url.hostname === "127.0.0.1" || url.hostname === "localhost";
+  const expectedWorker = /^egeregore\.[a-z0-9-]+\.workers\.dev$/.test(url.hostname);
   if (url.protocol !== "https:" && !(local && url.protocol === "http:")) fail("--url must be https (http only for localhost)");
+  if (!local && !expectedWorker) fail("--url must be the Egregore workers.dev URL");
   if (url.username !== "" || url.password !== "") fail("--url must not carry credentials");
-  if (url.pathname !== "/mcp") fail("--url must end in /mcp");
+  if (url.pathname !== "/mcp" || url.search !== "" || url.hash !== "") fail("--url must end in /mcp without a query or fragment");
   return url;
 }
 
@@ -80,10 +82,18 @@ function readTokens(file) {
   }
   if ((info.mode & 0o077) !== 0) fail("--tokens-file must not be readable by group or others (chmod 600)");
   try {
-    const inside = execFileSync("git", ["-C", dirname(path), "rev-parse", "--is-inside-work-tree"], { stdio: ["ignore", "pipe", "ignore"] });
-    if (inside.toString().trim() === "true") fail("--tokens-file is inside a git work tree. Keep tokens outside any repository.");
+    const inside = execFileSync("git", ["-C", dirname(path), "rev-parse", "--is-inside-work-tree"], { stdio: ["ignore", "pipe", "pipe"] });
+    if (inside.toString().trim() !== "true") fail("Could not verify that --tokens-file is outside a git work tree");
+    fail("--tokens-file is inside a git work tree. Keep tokens outside any repository.");
   } catch (error) {
-    if (error?.status === undefined) throw error; // fail() exits, so anything else here is a real error
+    const stderr = String(error?.stderr ?? "");
+    if (error?.status === 128 && /not a git repository/i.test(stderr)) {
+      // This is the one expected Git failure: the private file is outside a repository.
+    } else if (error?.status !== undefined) {
+      fail("Could not verify that --tokens-file is outside a git work tree");
+    } else {
+      throw error;
+    }
   }
   let parsed;
   try {
