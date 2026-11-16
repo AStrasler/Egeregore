@@ -45,6 +45,17 @@ describe("GitHub App token", () => {
     })).toThrow(GitHubAppScopeError);
   });
 
+  it.each(["__proto__", "constructor"])("rejects an own %s permission", (name) => {
+    const permissions = {
+      issues: "write",
+      pull_requests: "read",
+      metadata: "read",
+    };
+    Object.defineProperty(permissions, name, { value: "admin", enumerable: true });
+    expect(() => checkPermissions(permissions)).toThrow(GitHubAppScopeError);
+  });
+
+
   it("rejects inherited permission levels", () => {
     expect(() => checkPermissions({
       issues: "toString",
