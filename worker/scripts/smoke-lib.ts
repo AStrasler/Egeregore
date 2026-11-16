@@ -29,16 +29,22 @@ export interface TokenEntry {
   token: string;
 }
 
+export interface RpcEnvelope {
+  ok?: boolean;
+  result?: unknown;
+  error?: { code?: string; message?: string };
+}
+
 export interface Reply {
   status: number;
   /** The tool's `{ ok, result, error }` envelope, or null when the reply had none. */
-  envelope: { ok?: boolean; result?: any; error?: { code?: string; message?: string } } | null;
+  envelope: RpcEnvelope | null;
   /** The first text block of the tool result. `ping` answers with plain text. */
   text: string | null;
   /** A JSON-RPC level error, for example an unknown method. */
   rpcError: string | null;
   /** The raw JSON-RPC result, for tools/list. */
-  result: any;
+  result: unknown;
 }
 
 /** One HTTP POST of a JSON-RPC body. The caller supplies the transport. */
@@ -73,10 +79,14 @@ export interface Report {
   cleanup: string[];
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 /** Parse a response body that is JSON, or a one-event server-sent stream, into a Reply. */
 export function parseReply(status: number, contentType: string, body: string): Reply {
   const empty: Reply = { status, envelope: null, text: null, rpcError: null, result: null };
-  let message: any;
+  let message: unknown;
   try {
     if (contentType.includes("text/event-stream")) {
       const data = body.split("\n").find((line) => line.startsWith("data:"));
@@ -87,17 +97,35 @@ export function parseReply(status: number, contentType: string, body: string): R
   } catch {
     return empty;
   }
-  if (message === null || typeof message !== "object") return empty;
-  if (message.error) return { ...empty, rpcError: String(message.error.message ?? "error").slice(0, 120) };
-  const result = message.result ?? null;
-  const text = Array.isArray(result?.content) && typeof result.content[0]?.text === "string" ? result.content[0].text : null;
-  let envelope = result?.structuredContent ?? null;
-  if (envelope === null && text !== null && text.startsWith("{")) {
+  if (!isRecord(message)) return empty;
+  if (isRecord(message.error)) {
+    return { ...empty, rpcError: String(message.error.message ?? "error").slice(0, 120) };
+  }
+  const result = isRecord(message.result) ? message.result : null;
+  const content = Array.isArray(result?.content) ? result.content : [];
+  const firstBlock = content[0];
+  const text = isRecord(firstBlock) && typeof firstBlock.text === "string" ? firstBlock.text : null;
+  let rawEnvelope: unknown = result?.structuredContent ?? null;
+  if (rawEnvelope === null && text !== null && text.startsWith("{")) {
     try {
-      envelope = JSON.parse(text);
+      rawEnvelope = JSON.parse(text);
     } catch {
-      envelope = null;
+      rawEnvelope = null;
     }
+  }
+  let envelope: RpcEnvelope | null = null;
+  if (isRecord(rawEnvelope)) {
+    const error = isRecord(rawEnvelope.error)
+      ? {
+          ...(typeof rawEnvelope.error.code === "string" ? { code: rawEnvelope.error.code } : {}),
+          ...(typeof rawEnvelope.error.message === "string" ? { message: rawEnvelope.error.message } : {}),
+        }
+      : undefined;
+    envelope = {
+      ...(typeof rawEnvelope.ok === "boolean" ? { ok: rawEnvelope.ok } : {}),
+      ...(Object.hasOwn(rawEnvelope, "result") ? { result: rawEnvelope.result } : {}),
+      ...(error === undefined ? {} : { error }),
+    };
   }
   return { status, envelope, text, rpcError: null, result };
 }
@@ -136,7 +164,9 @@ export async function runSmoke(options: SmokeOptions): Promise<Report> {
   const record = (name: string, status: Check["status"], detail?: string) => {
     checks.push({ name: scrub(name), status, ...(detail === undefined ? {} : { detail: scrub(detail) }) });
   };
-  const expect = (name: string, passed: boolean, detail: string) => record(name, passed ? "pass" : "fail", passed ? undefined : detail);
+  const expect = (name: string, passed: boolean, detail: string) => {
+    record(name, passed ? "pass" : "fail", passed ? undefined : detail);
+  };
 
   const rpc = async (authorization: string | null, method: string, params: unknown = {}): Promise<Reply | null> => {
     id += 1;
@@ -161,7 +191,9 @@ export async function runSmoke(options: SmokeOptions): Promise<Report> {
   {
     const reply = await rpc(null, "tools/list");
     if (reply !== null) {
-      const names: string[] = Array.isArray(reply.result?.tools) ? reply.result.tools.map((tool: any) => String(tool.name)).sort() : [];
+      const result = isRecord(reply.result) ? reply.result : {};
+      const tools = Array.isArray(result.tools) ? result.tools : [];
+      const names: string[] = tools.map((tool) => isRecord(tool) ? String(tool.name ?? "") : "").sort();
       expect("tools/list works with no token and lists every tool", JSON.stringify(names) === JSON.stringify(TOOLS), `got ${names.length} tools, expected ${TOOLS.length}`);
     }
   }
