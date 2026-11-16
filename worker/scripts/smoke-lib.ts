@@ -114,7 +114,7 @@ const SAMPLE_ARGS: Record<string, (issue: number, pull: number) => Record<string
   release_task: (issue) => ({ issue_number: issue, status: "ready", reason: "Smoke test: a refused call must post nothing." }),
   post_progress: (issue) => ({ issue_number: issue, done: "Smoke test.", next: "Nothing." }),
   handoff_task: (issue) => ({ issue_number: issue, to_agent: "codex", done_so_far: "Smoke test.", next_action: "Nothing." }),
-  request_review: (_issue, pull) => ({ pull_number: pull }),
+  request_review: (_issue, pull) => pull > 0 ? ({ pull_number: pull }) : ({}),
 };
 
 const READS = ["get_tasks", "get_task", "get_task_history", "get_owner_decisions", "get_specialists"] as const;
@@ -151,7 +151,8 @@ export async function runSmoke(options: SmokeOptions): Promise<Report> {
   };
   const call = (authorization: string | null, tool: string, args: Record<string, unknown>) =>
     rpc(authorization, "tools/call", { name: tool, arguments: args });
-  const sample = (tool: string) => SAMPLE_ARGS[tool](issue, options.pull ?? 1);
+  const sample = (tool: string) => SAMPLE_ARGS[tool](issue, options.pull ?? 0);
+  const MUTATING = new Set(["claim_task", "post_progress", "renew_lease", "release_task", "request_review", "handoff_task"]);
   const code = (reply: Reply | null): string => reply?.envelope?.error?.code ?? (reply === null ? "no reply" : reply.rpcError ?? "none");
 
   const TOOLS = Object.keys(TOOL_PERMISSIONS).sort();
@@ -196,13 +197,24 @@ export async function runSmoke(options: SmokeOptions): Promise<Report> {
 
     // 3a. What it may not do is refused, and a refused call changes nothing.
     for (const tool of TOOLS.filter((name) => !mayCall(name))) {
+      if (tool === "handoff_task") {
+        record(`${who}: handoff_task forbidden probe`, "skip", "handoff_task opens a GitHub issue and is never called live");
+        continue;
+      }
+      if (MUTATING.has(tool) && (!writes || (tool === "request_review" && options.pull === undefined))) {
+        const reason = !writes ? "writes are off" : "no --pull was supplied";
+        record(`${who}: ${tool} forbidden probe`, "skip", reason);
+        continue;
+      }
       const reply = await call(header, tool, sample(tool));
       const got = code(reply);
       const leaked = reply?.envelope?.ok === true || (tool === "ping" && reply?.text?.startsWith("pong") === true);
       expect(`${who}: ${tool} is forbidden`, got === "forbidden", leaked ? "the call SUCCEEDED, so this token has more access than its record says" : `got ${got}`);
       if (leaked) {
-        cleanup.push(`The ${who} token ran ${tool} when it should have been refused. Check EGREGORE_AGENT_TOKENS, then look at issue #${issue} and pull #${options.pull ?? "-"} for the comment it posted.`);
-        if (tool === "claim_task") await call(header, "release_task", { issue_number: issue, status: "ready", reason: "Smoke test: undoing a claim that should have been refused." });
+        cleanup.push(scrub(`The ${who} token ran ${tool} when it should have been refused. Check EGREGORE_AGENT_TOKENS, then look at issue #${issue} and pull #${options.pull ?? "-"} for the comment it posted.`));
+        if (tool === "claim_task") {
+          await call(header, "release_task", { issue_number: issue, status: "ready", reason: "Smoke test: undoing a claim that should have been refused." });
+        }
       }
     }
 
@@ -223,11 +235,11 @@ export async function runSmoke(options: SmokeOptions): Promise<Report> {
     } else if (!writes) {
       record(`${who}: write flow on issue #${issue}`, "skip", "writes are off");
     } else {
-      writers.push(entry);
       const claim = await call(header, "claim_task", sample("claim_task"));
       const held = claim?.envelope?.ok === true;
       expect(`${who}: claim_task claims issue #${issue}`, held, `got ${code(claim)}`);
       if (held) {
+        writers.push(entry);
         try {
           const progress = await call(header, "post_progress", { issue_number: issue, done: `Smoke test as ${entry.agent}.`, next: "Release the lease." });
           expect(`${who}: post_progress succeeds`, progress?.envelope?.ok === true, `got ${code(progress)}`);
@@ -237,6 +249,8 @@ export async function runSmoke(options: SmokeOptions): Promise<Report> {
           const release = await call(header, "release_task", { issue_number: issue, status: "ready", reason: `Smoke test finished for ${entry.agent}.` });
           expect(`${who}: release_task returns the issue to ready`, release?.envelope?.ok === true, `got ${code(release)}. Release issue #${issue} by hand.`);
         }
+      } else if (claim === null || claim?.envelope === null) {
+        cleanup.push(scrub(`Could not confirm whether ${who} acquired a lease on test issue #${issue}. Inspect the issue and release it manually if a lease was written.`));
       }
     }
 
@@ -256,10 +270,10 @@ export async function runSmoke(options: SmokeOptions): Promise<Report> {
   }
 
   if (writers.length > 0) {
-    cleanup.push(`Close test issue #${issue}. The Worker has no close tool, and the claim, progress and renewal comments stay on it.`);
+    cleanup.push(scrub(`Close test issue #${issue}. The Worker has no close tool, and the claim, progress and renewal comments stay on it.`));
   }
   if (reviewed) {
-    cleanup.push(`Pull request #${options.pull} has a review-request comment from the Worker's GitHub App. Close that pull request if it was only a test.`);
+    cleanup.push(scrub(`Pull request #${options.pull} has a review-request comment from the Worker's GitHub App. Close that pull request if it was only a test.`));
   }
 
   const failed = checks.filter((check) => check.status === "fail").length;
