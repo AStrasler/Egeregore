@@ -172,26 +172,28 @@ export function checkPermissions(granted: unknown): void {
   if (typeof granted !== "object" || granted === null || Array.isArray(granted)) {
     throw new GitHubAppScopeError("Refusing to start: installation token permissions were missing.");
   }
-  const map = granted as Record<string, unknown>;
+  const grantedByName = new Map(Object.entries(granted as Record<string, unknown>));
+  const requestedByName = new Map(Object.entries(REQUESTED_PERMISSIONS));
+  const levelByName = new Map(Object.entries(LEVELS));
   const problems: string[] = [];
-  for (const [name, value] of Object.entries(map)) {
+  for (const [name, value] of grantedByName) {
     if (value === null || value === "") {
       continue;
     }
     const level = String(value);
-    if (!Object.hasOwn(REQUESTED_PERMISSIONS, name)) {
+    const needed = requestedByName.get(name);
+    if (needed === undefined) {
       problems.push(`${name}:${level}`);
       continue;
     }
-    const needed = REQUESTED_PERMISSIONS[name];
-    const grantedLevel = Object.hasOwn(LEVELS, level) ? LEVELS[level] : undefined;
-    const ceiling = Object.hasOwn(LEVELS, needed) ? LEVELS[needed] : undefined;
+    const grantedLevel = levelByName.get(level);
+    const ceiling = levelByName.get(needed);
     if (grantedLevel === undefined || ceiling === undefined || grantedLevel > ceiling) {
       problems.push(`${name}:${level}`);
     }
   }
-  for (const [name, needed] of Object.entries(REQUESTED_PERMISSIONS)) {
-    const actual = Object.hasOwn(map, name) ? map[name] : undefined;
+  for (const [name, needed] of requestedByName) {
+    const actual = grantedByName.get(name);
     if (actual !== undefined && actual !== null && String(actual) === needed) {
       continue;
     }
