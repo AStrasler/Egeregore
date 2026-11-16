@@ -117,6 +117,16 @@ describe("GitHub App token", () => {
       /contents:write/,
     ],
     [
+      "an inherited __proto__ permission",
+      (base: any) => ({ ...base, permissions: { ...base.permissions, ["__proto__"]: "admin" } }),
+      /__proto__:admin/,
+    ],
+    [
+      "an inherited constructor permission",
+      (base: any) => ({ ...base, permissions: { ...base.permissions, constructor: "admin" } }),
+      /constructor:admin/,
+    ],
+    [
       "a higher level",
       (base: any) => ({ ...base, permissions: { ...base.permissions, pull_requests: "write" } }),
       /pull_requests:write/,
