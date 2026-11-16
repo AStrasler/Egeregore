@@ -137,7 +137,13 @@ class ProvisionTests(unittest.TestCase):
 
     def test_a_bad_plan_writes_nothing(self) -> None:
         plan = Path(self.tmp.name) / "plan.json"
-        for entry in ({"agent": "aaron"}, {"agent": "cursor", "permissions": ["admin"]}, {"agent": "cursor", "repos": ["*"]}):
+        for entry in (
+            {"agent": "aaron"},
+            {"agent": "cursor", "permissions": ["admin"]},
+            {"agent": "cursor", "repos": ["*"]},
+            None,
+            {"agent": "cursor", "label": ""},
+        ):
             plan.write_text(json.dumps([entry]))
             done = self.provision("--plan", str(plan))
             self.assertNotEqual(done.returncode, 0, entry)
@@ -242,7 +248,7 @@ class SmokeCommandTests(unittest.TestCase):
         self.file.chmod(0o600)
         copy = ROOT / "tests" / "smoke-should-not-exist.json"
         try:
-            shutil.copy(self.file, copy)
+            copy.write_text('{"version":1,"tokens":[]}', encoding="utf-8")
             copy.chmod(0o600)
             done = run(SMOKE, "--url", f"http://127.0.0.1:{self.port}/mcp", "--tokens-file", str(copy), "--issue", "5")
             self.assertEqual(done.returncode, 2)
@@ -256,7 +262,7 @@ class SmokeCommandTests(unittest.TestCase):
         copy = ROOT / "tests" / "smoke-should-not-exist-linked.json"
         link = Path(self.tmp.name) / "alias.json"
         try:
-            shutil.copy(self.file, copy)
+            copy.write_text('{"version":1,"tokens":[]}', encoding="utf-8")
             copy.chmod(0o600)
             link.symlink_to(copy)
             done = run(SMOKE, "--url", f"http://127.0.0.1:{self.port}/mcp", "--tokens-file", str(link), "--issue", "5")
