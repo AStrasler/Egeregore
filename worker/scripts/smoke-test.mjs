@@ -64,7 +64,7 @@ function checkUrl(text, expectedSubdomain) {
   const expectedWorker = validSubdomain && url.hostname === `egeregore.${expectedSubdomain}.workers.dev`;
   if (url.protocol !== "https:" && !(local && url.protocol === "http:")) fail("--url must be https (http only for localhost)");
   if (!local && (!expectedSubdomain || !expectedWorker)) fail("--url must match the Egregore Worker host returned by the Cloudflare account");
-  if (url.port !== "") fail("--url must use the default HTTPS port");
+  if (!local && url.port !== "") fail("--url must use the default HTTPS port");
   if (url.username !== "" || url.password !== "") fail("--url must not carry credentials");
   if (url.pathname !== "/mcp" || url.search !== "" || url.hash !== "") fail("--url must end in /mcp without a query or fragment");
   return url;
