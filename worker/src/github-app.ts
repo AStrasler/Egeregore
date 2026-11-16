@@ -26,12 +26,16 @@ import {
 import { redactText } from "./coordination";
 import { tryParseTime } from "./pycompat";
 
-export const REQUESTED_PERMISSIONS: Readonly<Record<string, string>> = {
-  issues: "write",
-  pull_requests: "read",
-  metadata: "read",
-};
-const LEVELS: Readonly<Record<string, number>> = { read: 1, write: 2, admin: 3 };
+export const REQUESTED_PERMISSIONS: ReadonlyMap<string, string> = new Map([
+  ["issues", "write"],
+  ["pull_requests", "read"],
+  ["metadata", "read"],
+]);
+const LEVELS: ReadonlyMap<string, number> = new Map([
+  ["read", 1],
+  ["write", 2],
+  ["admin", 3],
+]);
 const REFRESH_SKEW_MS = 5 * 60 * 1000;
 const JWT_PAST_SKEW_S = 60;
 const JWT_FUTURE_S = 8 * 60;
@@ -179,19 +183,19 @@ export function checkPermissions(granted: unknown): void {
       continue;
     }
     const level = String(value);
-    if (!Object.hasOwn(REQUESTED_PERMISSIONS, name)) {
+    const requested = REQUESTED_PERMISSIONS.get(name);
+    if (requested === undefined) {
       problems.push(`${name}:${level}`);
       continue;
     }
-    const granted = Object.hasOwn(LEVELS, level) ? LEVELS[level] : undefined;
-    const requested = REQUESTED_PERMISSIONS[name];
-    const ceiling = Object.hasOwn(LEVELS, requested) ? LEVELS[requested] : undefined;
+    const granted = LEVELS.get(level);
+    const ceiling = LEVELS.get(requested);
     if (granted === undefined || ceiling === undefined || granted > ceiling) {
       problems.push(`${name}:${level}`);
     }
   }
-  for (const [name, needed] of Object.entries(REQUESTED_PERMISSIONS)) {
-    const actual = map[name];
+  for (const [name, needed] of REQUESTED_PERMISSIONS) {
+    const actual = Object.hasOwn(map, name) ? map[name] : undefined;
     if (actual !== undefined && actual !== null && String(actual) === needed) {
       continue;
     }
@@ -348,7 +352,7 @@ export class GitHubAppAuth {
       method: "POST",
       url: `${this.api}/app/installations/${installationId}/access_tokens`,
       bearer: jwt,
-      body: { repositories: [this.repoName], permissions: { ...REQUESTED_PERMISSIONS } },
+      body: { repositories: [this.repoName], permissions: Object.fromEntries(REQUESTED_PERMISSIONS) },
     });
     if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
       throw new GitHubAppError("GitHub installation token response was not an object.", 502);
