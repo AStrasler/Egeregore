@@ -225,6 +225,7 @@ The test runs from the box against the live URL. It needs one throwaway issue.
 ```sh
 node --experimental-strip-types --no-warnings worker/scripts/smoke-test.mjs \
   --url "$MCP_URL" \
+  --workers-subdomain "$SUBDOMAIN" \
   --tokens-file "$SECRETS_DIR/agent-tokens.private.json" \
   --issue "$ISSUE"
 ```
