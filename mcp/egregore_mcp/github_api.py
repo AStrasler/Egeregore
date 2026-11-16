@@ -13,6 +13,57 @@ import urllib.parse
 import urllib.request
 from typing import Callable, Mapping
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Do not forward an Authorization header to an unvalidated redirect target."""
+
+    def redirect_request(self, request, fp, code, message, headers, new_url):
+        return None
+
+
+def open_no_redirect(request: urllib.request.Request, *, timeout: int):
+    """Open one URL without following redirects."""
+    return urllib.request.build_opener(_NoRedirect()).open(request, timeout=timeout)
+
+
+def checked_api_url(api: str, url: str) -> str:
+    """Require a URL to remain within the configured GitHub API origin and path."""
+    try:
+        base = urllib.parse.urlsplit(api)
+        target = urllib.parse.urlsplit(url)
+        if not base.hostname or not target.hostname:
+            raise ValueError
+        if (
+            base.scheme not in {"http", "https"}
+            or target.scheme != base.scheme
+            or target.hostname.casefold() != base.hostname.casefold()
+            or target.port != base.port
+            or base.username is not None
+            or base.password is not None
+            or target.username is not None
+            or target.password is not None
+            or target.fragment
+        ):
+            raise ValueError
+        base_path = base.path.rstrip("/")
+        target_path = target.path
+        for _ in range(5):
+            decoded = urllib.parse.unquote(target_path)
+            if decoded == target_path:
+                break
+            target_path = decoded
+        for _ in range(5):
+            decoded = urllib.parse.unquote(base_path)
+            if decoded == base_path:
+                break
+            base_path = decoded
+        if any(part in {".", ".."} for part in target_path.split("/")):
+            raise ValueError
+        if base_path and target_path != base_path and not target_path.startswith(base_path + "/"):
+            raise ValueError
+    except ValueError:
+        raise ValueError("GitHub pagination URL escaped the configured API base") from None
+    return url
+
 from egregore_mcp.redaction import redact_secrets
 
 
@@ -138,7 +189,14 @@ class RestGitHub:
             return flat
         raise GitHubError(502, "GitHub HTTP 502: paginated response was not a list")
 
+    def _checked_api_url(self, url: str) -> str:
+        try:
+            return checked_api_url(self.api, url)
+        except ValueError:
+            raise GitHubError(502, "GitHub pagination URL escaped the configured API base") from None
+
     def _once(self, method: str, url: str, body: Mapping[str, object] | None) -> tuple[object, str | None]:
+        url = self._checked_api_url(url)
         data = None if body is None else json.dumps(body).encode("utf-8")
         request = urllib.request.Request(url, data=data, method=method)
         request.add_header("Authorization", f"Bearer {self._bearer()}")
@@ -148,7 +206,7 @@ class RestGitHub:
         if data is not None:
             request.add_header("Content-Type", "application/json")
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
+            with open_no_redirect(request, timeout=30) as response:
                 raw = response.read()
                 link = response.headers.get("Link")
         except urllib.error.HTTPError as err:

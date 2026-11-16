@@ -1361,5 +1361,38 @@ class RestClientTests(unittest.TestCase):
             )
 
 
+    def test_pagination_urls_stay_inside_configured_api_origin_and_path(self) -> None:
+        client = github_api.RestGitHub(
+            api="https://api.github.com/api/v3",
+            token=TOKEN,
+            repo="AStrasler/Egeregore",
+        )
+        valid = "https://api.github.com/api/v3/repos/AStrasler/Egeregore/issues"
+        self.assertEqual(client._checked_api_url(valid), valid)
+        for url in (
+            "https://evil.example/api/v3/repos/AStrasler/Egeregore/issues",
+            "https://api.github.com/api/v3/../../admin",
+            "https://api.github.com/api/v3/%2e%2e/%2e%2e/admin",
+            "https://api.github.com/api/v3/%252e%252e/admin",
+            "https://[broken",
+        ):
+            with self.subTest(url=url), self.assertRaises(github_api.GitHubError):
+                client._checked_api_url(url)
+
+    def test_redirect_handler_refuses_to_follow(self) -> None:
+        handler = github_api._NoRedirect()
+        request = github_api.urllib.request.Request("https://api.github.com/api/v3/repos/AStrasler/Egeregore")
+        redirected = handler.redirect_request(
+            request,
+            None,
+            302,
+            "Found",
+            {},
+            "https://evil.example/collect",
+        )
+        self.assertIsNone(redirected)
+
+
+
 if __name__ == "__main__":
     unittest.main()
