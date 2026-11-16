@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { createWorker } from "../src/index";
+import type { Permission } from "../src/auth";
 import { parseReply, runSmoke, type Post, type TokenEntry } from "../scripts/smoke-lib";
 import { API, FakeGitHub, REPO } from "./helpers/fake-github";
 import { testKey, type TestKey } from "./helpers/keys";
@@ -31,7 +32,7 @@ beforeAll(async () => {
 
 interface Plan {
   agent: string;
-  permissions: string[];
+  permissions: Permission[];
   tools?: string[];
 }
 
@@ -45,7 +46,7 @@ async function setup(plans: Plan[]) {
     const token = randomToken();
     const tools = plan.tools ?? ["*"];
     entries.push({ agent: plan.agent, permissions: plan.permissions, tools, token });
-    records.push(await recordFor(token, { agent: plan.agent, permissions: plan.permissions as any, tools }));
+    records.push(await recordFor(token, { agent: plan.agent, permissions: plan.permissions, tools }));
   }
   const env = {
     EGREGORE_APP_ID: "123",
@@ -114,6 +115,15 @@ describe("smoke test against the real Worker with a fake GitHub", () => {
     expect(github.writes).toEqual([]);
     expect(report.skipped).toBeGreaterThan(0);
     expect(report.cleanup).toEqual([]);
+  });
+
+  it("skips review probes when no test pull request is supplied", async () => {
+    const { github, entries, post } = await setup([{ agent: "cursor", permissions: ["read", "review"] }]);
+    const report = await runSmoke({ post, tokens: entries, issue: 1, write: true });
+    expect(failures(report)).toEqual([]);
+    expect(github.writes).toEqual([]);
+    expect(report.checks.some((check) => check.status === "skip" && check.name.includes("request_review"))).toBe(true);
+    expect(report.skipped).toBeGreaterThan(0);
   });
 
   it("honours a token's tool list: tools outside it are forbidden, and the write flow is skipped", async () => {
