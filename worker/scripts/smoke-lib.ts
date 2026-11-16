@@ -249,7 +249,7 @@ export async function runSmoke(options: SmokeOptions): Promise<Report> {
           const release = await call(header, "release_task", { issue_number: issue, status: "ready", reason: `Smoke test finished for ${entry.agent}.` });
           expect(`${who}: release_task returns the issue to ready`, release?.envelope?.ok === true, `got ${code(release)}. Release issue #${issue} by hand.`);
         }
-      } else if (claim === null || claim?.envelope === null) {
+      } else if (!["not_claimable", "wrong_role", "forbidden"].includes(code(claim))) {
         cleanup.push(scrub(`Could not confirm whether ${who} acquired a lease on test issue #${issue}. Inspect the issue and release it manually if a lease was written.`));
       }
     }
