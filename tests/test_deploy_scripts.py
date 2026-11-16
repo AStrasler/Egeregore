@@ -238,7 +238,7 @@ class SmokeCommandTests(unittest.TestCase):
         self.assertTrue(any(value.startswith("Bearer ") for value in Stub.seen_authorization))
 
     def test_it_refuses_a_bad_url_a_loose_file_or_a_file_in_a_repository(self) -> None:
-        for url in ("http://example.com/mcp", "https://example.com/other", "https://user:pw@example.com/mcp", "nonsense"):
+        for url in ("http://example.com/mcp", "https://example.com/other", "https://egeregore.attacker.workers.dev/mcp", "https://user:pw@example.com/mcp", "nonsense"):
             done = self.smoke(url=url)
             self.assertEqual(done.returncode, 2, url)
         self.file.chmod(0o644)
