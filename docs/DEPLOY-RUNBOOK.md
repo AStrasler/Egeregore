@@ -319,8 +319,8 @@ Before repeating the step 2 staging block, set `TOKEN_RECORDS_FILE="$SECRETS_DIR
 ### Rotate tokens without a gap
 
 1. Provision a new set into a **new** directory: `provision-agent-tokens.mjs --out-dir "$HOME/.egregore-secrets/<date>-rotation" --plan plan.json`, where the plan lists only the agents being rotated.
-2. Merge old and new records, so both work: `jq -s 'add' old/agent-tokens.records.json new/agent-tokens.records.json > merged.json`. Check it with `check-agent-tokens.mjs`, and check that every label is unique: `jq -e 'map(.label) | length == (unique | length)' merged.json`. The limit is 32 records and 16 KiB.
-3. Stage `merged.json` (step 2) and promote it (step 3, with Aaron's sign-off).
+2. Merge old and new records, so both work: `jq -s 'add' old/agent-tokens.records.json new/agent-tokens.records.json > "$SECRETS_DIR/agent-tokens.records.merged.json"`. Check it with `check-agent-tokens.mjs`, and check that every label is unique: `jq -e 'map(.label) | length == (unique | length)' "$SECRETS_DIR/agent-tokens.records.merged.json"`. The limit is 32 records and 16 KiB.
+3. Set `TOKEN_RECORDS_FILE="$SECRETS_DIR/agent-tokens.records.merged.json"`, then run the step 2 staging block and promote it (step 3, with Aaron's sign-off). Only after promotion succeeds, replace the canonical records file with the merged file: `mv "$SECRETS_DIR/agent-tokens.records.merged.json" "$SECRETS_DIR/agent-tokens.records.json"`. If staging or promotion fails, keep the canonical file unchanged.
 4. Switch each client to its new token (step 5). Run the smoke test with a tokens file that has the new tokens.
 5. Revoke the old records with the steps above, stage, and promote with Aaron's sign-off. Delete the old directory's private file.
 
@@ -342,3 +342,4 @@ Aaron makes a replacement token in the Egregore Cloudflare account with only Wor
 - Print, paste, commit, email, or post a token, the App key, or the Cloudflare credential.
 - Give a token the agent name `aaron`, or give Aaron's approvals a path through this server.
 - Merge a pull request, change a ruleset, or change a repository setting.
+

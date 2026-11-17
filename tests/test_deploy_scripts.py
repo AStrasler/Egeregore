@@ -238,6 +238,7 @@ class SmokeCommandTests(unittest.TestCase):
         done = run(SMOKE, "--help")
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(len(done.stdout.splitlines()), 1)
+        self.assertRegex(done.stdout, r"^[^\r\n]+\n$")
         self.assertNotIn("\\n", done.stdout)
 
     def test_a_server_that_rejects_every_token_fails_and_no_token_is_printed(self) -> None:
@@ -353,6 +354,11 @@ class RunbookDecisionTests(unittest.TestCase):
         self.assertIn('--rawfile tokens "$TOKEN_RECORDS_FILE"', staging)
         self.assertIn('TOKEN_RECORDS_FILE="$SECRETS_DIR/agent-tokens.records.next.json"', revoke)
 
+    def test_rotation_stages_and_promotes_the_merged_records(self) -> None:
+        rotation = self.text[self.text.index("### Rotate tokens without a gap"):self.text.index("### Rotate the GitHub App key")]
+        self.assertIn('TOKEN_RECORDS_FILE="$SECRETS_DIR/agent-tokens.records.merged.json"', rotation)
+        self.assertIn('mv "$SECRETS_DIR/agent-tokens.records.merged.json" "$SECRETS_DIR/agent-tokens.records.json"', rotation)
+
     def test_smoke_runbook_names_live_probe_skips(self) -> None:
         section = self.text[self.text.index("What it checks, in order:"):self.text.index("Read-only variant")]
         self.assertIn("both the allowed review call and the forbidden-permission probe are skipped", section)
@@ -381,3 +387,4 @@ class RunbookDecisionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
