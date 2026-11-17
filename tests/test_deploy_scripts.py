@@ -356,8 +356,18 @@ class RunbookDecisionTests(unittest.TestCase):
 
     def test_rotation_stages_and_promotes_the_merged_records(self) -> None:
         rotation = self.text[self.text.index("### Rotate tokens without a gap"):self.text.index("### Rotate the GitHub App key")]
-        self.assertIn('TOKEN_RECORDS_FILE="$SECRETS_DIR/agent-tokens.records.merged.json"', rotation)
-        self.assertIn('mv "$SECRETS_DIR/agent-tokens.records.merged.json" "$SECRETS_DIR/agent-tokens.records.json"', rotation)
+        assignment = 'TOKEN_RECORDS_FILE="$SECRETS_DIR/agent-tokens.records.merged.json"'
+        replacement = 'mv "$SECRETS_DIR/agent-tokens.records.merged.json" "$SECRETS_DIR/agent-tokens.records.json"'
+        self.assertIn('OLD_SECRETS_DIR="$SECRETS_DIR"', rotation)
+        self.assertIn('NEW_SECRETS_DIR="$HOME/.egregore-secrets/<date>-rotation"', rotation)
+        self.assertIn('"$OLD_SECRETS_DIR/agent-tokens.records.json" "$NEW_SECRETS_DIR/agent-tokens.records.json"', rotation)
+        self.assertIn('--tokens-file "$NEW_SECRETS_DIR/agent-tokens.private.json"', rotation)
+        self.assertLess(rotation.index(assignment), rotation.index("then run the step 2 staging block"))
+        self.assertLess(rotation.index("Only after promotion succeeds"), rotation.index(replacement))
+
+    def test_manual_code_version_upload_tags_the_full_commit_sha(self) -> None:
+        self.assertIn('wr versions upload --tag "$COMMIT_SHA"', self.text)
+        self.assertNotIn('wr versions upload --tag "$(git rev-parse --short HEAD)"', self.text)
 
     def test_smoke_runbook_names_live_probe_skips(self) -> None:
         section = self.text[self.text.index("What it checks, in order:"):self.text.index("Read-only variant")]

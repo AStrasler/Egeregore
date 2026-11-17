@@ -98,7 +98,7 @@ Write down, outside the repository:
 
 - `PREVIOUS_VERSION`: the version ID that is live now. This is the rollback target. It may be the starter "Hello world" Worker.
 - `COMMIT_SHA`: the source commit recorded above.
-- `CODE_VERSION`: the Worker version ID uploaded by Workers Builds for `COMMIT_SHA`. Check its commit annotation with `wr versions view <id> --name egeregore`. If it is not annotated with `COMMIT_SHA`, upload one from the box, which makes a version and deploys nothing: `wr versions upload --tag "$(git rev-parse --short HEAD)"`, then record the new version ID as `CODE_VERSION`.
+- `CODE_VERSION`: the Worker version ID uploaded by Workers Builds for `COMMIT_SHA`. Check its commit annotation with `wr versions view <id> --name egeregore`. If it is not annotated with `COMMIT_SHA`, upload one from the box, which makes a version and deploys nothing: `wr versions upload --tag "$COMMIT_SHA"`, then record the new version ID as `CODE_VERSION`.
 - Whether `workers.dev` is `enabled: false` (expected) and whether the account has a `workers.dev` subdomain.
 
 Stop if any of these is true:
@@ -318,10 +318,10 @@ Before repeating the step 2 staging block, set `TOKEN_RECORDS_FILE="$SECRETS_DIR
 
 ### Rotate tokens without a gap
 
-1. Provision a new set into a **new** directory: `provision-agent-tokens.mjs --out-dir "$HOME/.egregore-secrets/<date>-rotation" --plan plan.json`, where the plan lists only the agents being rotated.
-2. Merge old and new records, so both work: `jq -s 'add' old/agent-tokens.records.json new/agent-tokens.records.json > "$SECRETS_DIR/agent-tokens.records.merged.json"`. Check it with `check-agent-tokens.mjs`, and check that every label is unique: `jq -e 'map(.label) | length == (unique | length)' "$SECRETS_DIR/agent-tokens.records.merged.json"`. The limit is 32 records and 16 KiB.
+1. Keep the active set as `OLD_SECRETS_DIR="$SECRETS_DIR"`. Set `NEW_SECRETS_DIR="$HOME/.egregore-secrets/<date>-rotation"` to a new private directory, then provision there: `node --experimental-strip-types --no-warnings worker/scripts/provision-agent-tokens.mjs --out-dir "$NEW_SECRETS_DIR" --plan plan.json`. The plan lists only the agents being rotated.
+2. Merge old and new records, so both work: `jq -s 'add' "$OLD_SECRETS_DIR/agent-tokens.records.json" "$NEW_SECRETS_DIR/agent-tokens.records.json" > "$SECRETS_DIR/agent-tokens.records.merged.json"`. Check it with `node --experimental-strip-types --no-warnings worker/scripts/check-agent-tokens.mjs < "$SECRETS_DIR/agent-tokens.records.merged.json"`, and check that every label is unique: `jq -e 'map(.label) | length == (unique | length)' "$SECRETS_DIR/agent-tokens.records.merged.json"`. The limit is 32 records and 16 KiB.
 3. Set `TOKEN_RECORDS_FILE="$SECRETS_DIR/agent-tokens.records.merged.json"`, then run the step 2 staging block and promote it (step 3, with Aaron's sign-off). Only after promotion succeeds, replace the canonical records file with the merged file: `mv "$SECRETS_DIR/agent-tokens.records.merged.json" "$SECRETS_DIR/agent-tokens.records.json"`. If staging or promotion fails, keep the canonical file unchanged.
-4. Switch each client to its new token (step 5). Run the smoke test with a tokens file that has the new tokens.
+4. Switch each client to its new token (step 5). Run the smoke test with `--tokens-file "$NEW_SECRETS_DIR/agent-tokens.private.json"` so it checks the new tokens.
 5. Revoke the old records with the steps above, stage, and promote with Aaron's sign-off. Delete the old directory's private file.
 
 ### Rotate the GitHub App key
