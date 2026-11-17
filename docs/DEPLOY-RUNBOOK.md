@@ -21,7 +21,7 @@ The design is in [cloudflare-hosting.md](cloudflare-hosting.md). The Worker's be
 | Worker | `egeregore` |
 | Plan | Workers Free |
 | Credential | The box secret `EGREGORE_CLOUDFLARE_API_TOKEN`, exported as `CLOUDFLARE_API_TOKEN` for each command |
-| GitHub App | `egregore-coordinator`, ID `5503558`, installed across AStrasler repositories. The key can mint an installation token for any installed repository; this Worker requests tokens scoped to `AStrasler/Egeregore`. Narrowing the installation is a separate owner decision. Its private key is the box secret `EGREGORE_APP_PRIVATE_KEY` |
+| GitHub App | `egregore-coordinator`, ID `5503558`, currently installed across AStrasler repositories. Its key can mint an installation token for any installed repository; this Worker requests tokens scoped to `AStrasler/Egeregore`, but that does not limit the impact of a leaked key. Its private key is the box secret `EGREGORE_APP_PRIVATE_KEY`. |
 | Repository the Worker acts on | `AStrasler/Egeregore` (the default of `EGREGORE_REPO`, so it is not set) |
 
 Worker settings, from `worker/src/index.ts`:
@@ -47,11 +47,14 @@ Do this before step 0. Nothing in this runbook reads, creates, copies, or rotate
    - copying `EGREGORE_APP_PRIVATE_KEY` and the generated records into a staged Worker version (step 2);
    - the release itself, meaning promotion, the public URL, and the smoke test (steps 3 and 4);
    - copying each raw token to its client, naming every client and where its token goes, such as a config file on the box or a connector's settings page that Aaron fills in himself (step 5);
-   - the Cloudflare account, the Worker name `egeregore`, the commit SHA, and the Free plan limit.
+   - the Cloudflare account, the Worker name `egeregore`, the commit SHA, and the Free plan limit;
+   - the GitHub App installation scope and the decision to restrict the App to `AStrasler/Egeregore` before staging its private key.
 3. The decision records the request. It does not grant it. Aaron's own words in chat, naming the same items, are what start step 0. A `Decision: approve` comment from his GitHub account is not proof on its own, because an agent can post through that account.
 4. Link the decision issue in every progress note for this release. If an item is missing from it, such as a later rotation, stop and file a new decision first. Approval of one item does not cover another.
 
 The [Gate](#gate-aarons-explicit-sign-off) is a second, narrower stop at the point of going live. It does not replace this prerequisite.
+
+The App is currently installed across repositories. A repository-scoped installation token limits that token, but the private key can mint tokens for every repository in the App's installation. Before Step 2, an owner must narrow the App installation to `AStrasler/Egeregore` and verify the selected-repository list. Stop if any other repository remains selected. The Worker setting `EGREGORE_REPO` does not limit what the private key can mint if it is exposed.
 
 ## Step 0. Prepare the box and read the current state
 

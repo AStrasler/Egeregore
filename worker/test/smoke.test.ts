@@ -114,6 +114,7 @@ describe("smoke test against the real Worker with a fake GitHub", () => {
     expect(failures(report)).toEqual([]);
     expect(github.writes).toEqual([]);
     expect(report.skipped).toBeGreaterThan(0);
+    expect(report.checks.some((check) => check.status === "skip" && check.name.startsWith("request_review with no header"))).toBe(true);
     expect(report.cleanup).toEqual([]);
   });
 

@@ -46,19 +46,25 @@ function fail(message) {
 }
 
 function parse(argv) {
-  const out = {};
+  const out = { outDir: undefined, plan: undefined };
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index];
-    if (flag === "--out-dir" || flag === "--plan") {
+    if (flag === "--out-dir") {
       index += 1;
       if (index >= argv.length) fail(`${flag} needs a value`);
-      out[flag.slice(2)] = argv[index];
+      if (out.outDir !== undefined) fail("--out-dir may be supplied only once");
+      out.outDir = argv[index];
+    } else if (flag === "--plan") {
+      index += 1;
+      if (index >= argv.length) fail(`${flag} needs a value`);
+      if (out.plan !== undefined) fail("--plan may be supplied only once");
+      out.plan = argv[index];
     } else if (flag === "--help" || flag === "-h") {
       process.stdout.write("Usage: provision-agent-tokens.mjs --out-dir DIR [--plan plan.json]\n");
       process.exit(0);
     } else fail(`Unknown option ${flag}`);
   }
-  if (!out["out-dir"]) fail("--out-dir is required");
+  if (!out.outDir) fail("--out-dir is required");
   return out;
 }
 
@@ -167,7 +173,7 @@ function checkWithWorkerParser(records) {
 
 const args = parse(process.argv.slice(2));
 const plan = loadPlan(args.plan);
-const dir = prepareDirectory(args["out-dir"]);
+const dir = prepareDirectory(args.outDir);
 const privatePath = join(dir, "agent-tokens.private.json");
 const recordsPath = join(dir, "agent-tokens.records.json");
 for (const path of [privatePath, recordsPath]) {

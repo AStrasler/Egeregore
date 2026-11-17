@@ -150,6 +150,12 @@ class ProvisionTests(unittest.TestCase):
             self.assertFalse((self.out / "agent-tokens.private.json").exists(), entry)
             self.assertFalse((self.out / "agent-tokens.records.json").exists(), entry)
 
+    def test_unknown_or_prototype_options_are_rejected_before_writing(self) -> None:
+        for args in (("--__proto__", "polluted"), ("--constructor", "polluted"), ("--out-dir", str(self.out), "--out-dir", str(self.out))):
+            done = run(PROVISION, *args)
+            self.assertNotEqual(done.returncode, 0, args)
+            self.assertFalse(self.out.exists(), args)
+
     def test_it_never_overwrites(self) -> None:
         self.assertEqual(self.provision().returncode, 0)
         names = ("agent-tokens.private.json", "agent-tokens.records.json")
@@ -318,6 +324,16 @@ class RunbookDecisionTests(unittest.TestCase):
     def test_rotation_and_revocation_need_their_own_decision(self) -> None:
         step6 = self.text[self.text.index("## Step 6."):]
         self.assertIn("needs an owner decision", step6)
+
+    def test_the_github_app_installation_must_be_narrowed_before_staging_its_key(self) -> None:
+        self.assertIn("Before Step 2, an owner must narrow the App installation to `AStrasler/Egeregore`", self.text)
+        self.assertIn("Stop if any other repository remains selected", self.text)
+
+    def test_each_successful_revocation_updates_the_canonical_record_set(self) -> None:
+        section = self.text[self.text.index("### Revoke one token"):self.text.index("### Rotate tokens without a gap")]
+        promoted = section.index("Only after promotion succeeds")
+        replaced = section.index('mv "$SECRETS_DIR/agent-tokens.records.next.json" "$SECRETS_DIR/agent-tokens.records.json"')
+        self.assertGreater(replaced, promoted)
 
     def test_credential_commands_fail_closed(self) -> None:
         step0 = self.text[self.text.index("## Step 0."):self.text.index("## Step 1.")]

@@ -106,7 +106,7 @@ export function parseReply(status: number, contentType: string, body: string): R
   const firstBlock = content[0];
   const text = isRecord(firstBlock) && typeof firstBlock.text === "string" ? firstBlock.text : null;
   let rawEnvelope: unknown = result?.structuredContent ?? null;
-  if (rawEnvelope === null && text !== null && text.startsWith("{")) {
+  if (rawEnvelope === null && text?.startsWith("{")) {
     try {
       rawEnvelope = JSON.parse(text);
     } catch {
@@ -181,7 +181,13 @@ export async function runSmoke(options: SmokeOptions): Promise<Report> {
   };
   const call = (authorization: string | null, tool: string, args: Record<string, unknown>) =>
     rpc(authorization, "tools/call", { name: tool, arguments: args });
-  const sample = (tool: string) => SAMPLE_ARGS[tool](issue, options.pull ?? 0);
+  const sample = (tool: string) => {
+    if (!Object.hasOwn(SAMPLE_ARGS, tool)) {
+      record(`sample arguments exist for ${tool}`, "fail", "no safe sample arguments are defined for this tool");
+      return {};
+    }
+    return SAMPLE_ARGS[tool](issue, options.pull ?? 0);
+  };
   const MUTATING = new Set(["claim_task", "post_progress", "renew_lease", "release_task", "request_review", "handoff_task"]);
   const code = (reply: Reply | null): string => reply?.envelope?.error?.code ?? (reply === null ? "no reply" : reply.rpcError ?? "none");
 
@@ -209,6 +215,10 @@ export async function runSmoke(options: SmokeOptions): Promise<Report> {
     const messages = new Set<string>();
     for (const tool of TOOLS) {
       for (const [label, header] of variants) {
+        if (tool === "request_review" && options.pull === undefined) {
+          record(`${tool} with ${label} answers unauthenticated`, "skip", "no --pull was supplied, so no valid review request can be formed");
+          continue;
+        }
         const reply = await call(header, tool, sample(tool));
         const got = code(reply);
         expect(`${tool} with ${label} answers unauthenticated`, got === "unauthenticated", `got ${got}`);
@@ -224,8 +234,11 @@ export async function runSmoke(options: SmokeOptions): Promise<Report> {
   for (const entry of tokens) {
     const who = entry.label ? `${entry.agent} (${entry.label})` : entry.agent;
     const header = `Bearer ${entry.token}`;
-    const mayCall = (tool: string) =>
-      entry.permissions.includes(TOOL_PERMISSIONS[tool]) && (entry.tools.includes("*") || entry.tools.includes(tool));
+    const mayCall = (tool: string) => {
+      if (!Object.hasOwn(TOOL_PERMISSIONS, tool)) return false;
+      const permission = TOOL_PERMISSIONS[tool];
+      return permission !== undefined && entry.permissions.includes(permission) && (entry.tools.includes("*") || entry.tools.includes(tool));
+    };
 
     // 3a. What it may not do is refused, and a refused call changes nothing.
     for (const tool of TOOLS.filter((name) => !mayCall(name))) {
