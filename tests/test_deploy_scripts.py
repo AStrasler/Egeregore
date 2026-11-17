@@ -354,6 +354,13 @@ class RunbookDecisionTests(unittest.TestCase):
         self.assertIn('--rawfile tokens "$TOKEN_RECORDS_FILE"', staging)
         self.assertIn('TOKEN_RECORDS_FILE="$SECRETS_DIR/agent-tokens.records.next.json"', revoke)
 
+    def test_revocation_guard_chains_before_filter_and_parser(self) -> None:
+        revoke = self.text[self.text.index("### Revoke one token"):self.text.index("### Rotate tokens without a gap")]
+        self.assertIn("length == 1' \"$SECRETS_DIR/agent-tokens.records.json\" && \\", revoke)
+        self.assertIn("records.next.json\" && \\", revoke)
+        self.assertIn("< \"$SECRETS_DIR/agent-tokens.records.next.json\"", revoke)
+        self.assertIn("`<agent>-YYYYMMDD-xxxxxxxx`", revoke)
+
     def test_rotation_stages_and_promotes_the_merged_records(self) -> None:
         rotation = self.text[self.text.index("### Rotate tokens without a gap"):self.text.index("### Rotate the GitHub App key")]
         assignment = 'TOKEN_RECORDS_FILE="$SECRETS_DIR/agent-tokens.records.merged.json"'
