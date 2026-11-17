@@ -779,12 +779,12 @@ class PatternParityTests(unittest.TestCase):
 class ManifestTests(unittest.TestCase):
     """tests/secret-hygiene.manifest.json against the tree."""
 
-    SCAN_DIRS = ("mcp/egregore_mcp", "scripts", "worker/src", ".github/workflows")
+    SCAN_DIRS = ("mcp/egregore_mcp", "scripts", "worker/src", "worker/scripts", ".github/workflows")
     SCAN_SUFFIXES = {".py", ".ts", ".sh", ".yml", ".yaml"}
     # A file is credential-bearing when it names an auth header, a private key,
     # or one of the token variables. Case-insensitive.
     BEARING = re.compile(
-        r"authorization|bearer|private[_ ]key|egregore_github_token|gh_token|github_token|secrets\.",
+        r"authorization|bearer|private[_ ]key|egregore_github_token|egregore_agent_tokens|tokens?-file|gh_token|github_token|secrets\.",
         re.IGNORECASE,
     )
     DATED_REASON = re.compile(r"^\d{4}-\d{2}-\d{2}: \S.{9,}")
@@ -798,7 +798,8 @@ class ManifestTests(unittest.TestCase):
         found: set[str] = set()
         for directory in self.SCAN_DIRS:
             for path in sorted((ROOT / directory).rglob("*")):
-                if path.is_file() and path.suffix in self.SCAN_SUFFIXES and "node_modules" not in path.parts:
+                script_cli = directory == "worker/scripts" and path.suffix == ".mjs"
+                if path.is_file() and (path.suffix in self.SCAN_SUFFIXES or script_cli) and "node_modules" not in path.parts:
                     if self.BEARING.search(path.read_text(encoding="utf-8")):
                         found.add(path.relative_to(ROOT).as_posix())
         return found

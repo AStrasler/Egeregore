@@ -234,6 +234,12 @@ class SmokeCommandTests(unittest.TestCase):
     def smoke(self, *args: str, url: str | None = None):
         return run(SMOKE, "--url", url or f"http://127.0.0.1:{self.port}/mcp", "--tokens-file", str(self.file), "--issue", "5", *args)
 
+    def test_help_prints_a_real_line_break(self) -> None:
+        done = run(SMOKE, "--help")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(len(done.stdout.splitlines()), 1)
+        self.assertNotIn("\\n", done.stdout)
+
     def test_a_server_that_rejects_every_token_fails_and_no_token_is_printed(self) -> None:
         done = self.smoke("--no-write")
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
@@ -245,8 +251,13 @@ class SmokeCommandTests(unittest.TestCase):
 
     def test_it_refuses_a_bad_url_a_loose_file_or_a_file_in_a_repository(self) -> None:
         for url in ("http://example.com/mcp", "https://example.com/other", "https://egeregore.attacker.workers.dev/mcp", "https://user:pw@example.com/mcp", "nonsense"):
-            done = self.smoke(url=url)
+            done = self.smoke("--workers-subdomain", "known-account", url=url)
             self.assertEqual(done.returncode, 2, url)
+
+        missing = self.file.parent / "does-not-exist.json"
+        done = self.smoke("--workers-subdomain", "known-account", "--tokens-file", str(missing), url="https://egeregore.known-account.workers.dev/mcp")
+        self.assertEqual(done.returncode, 2)
+        self.assertIn("--tokens-file does not exist", done.stderr)
         self.file.chmod(0o644)
         done = self.smoke()
         self.assertEqual(done.returncode, 2)
@@ -328,6 +339,18 @@ class RunbookDecisionTests(unittest.TestCase):
     def test_the_github_app_installation_must_be_narrowed_before_staging_its_key(self) -> None:
         self.assertIn("Before Step 2, an owner must narrow the App installation to `AStrasler/Egeregore`", self.text)
         self.assertIn("Stop if any other repository remains selected", self.text)
+
+    def test_revocation_stages_the_checked_next_records_file(self) -> None:
+        staging = self.text[self.text.index("## Step 2."):self.text.index("## Gate.")]
+        revoke = self.text[self.text.index("### Revoke one token"):self.text.index("### Rotate tokens without a gap")]
+        self.assertIn('--rawfile tokens "$TOKEN_RECORDS_FILE"', staging)
+        self.assertIn('TOKEN_RECORDS_FILE="$SECRETS_DIR/agent-tokens.records.next.json"', revoke)
+
+    def test_smoke_runbook_names_live_probe_skips(self) -> None:
+        section = self.text[self.text.index("What it checks, in order:"):self.text.index("Read-only variant")]
+        self.assertIn("both the allowed review call and the forbidden-permission probe are skipped", section)
+        self.assertIn("not run live for any token", section)
+        self.assertIn("before any GitHub call", section)
 
     def test_each_successful_revocation_updates_the_canonical_record_set(self) -> None:
         section = self.text[self.text.index("### Revoke one token"):self.text.index("### Rotate tokens without a gap")]

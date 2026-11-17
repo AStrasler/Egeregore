@@ -157,12 +157,13 @@ TOKEN="$(jq -r '.tokens[] | select(.agent=="cursor") | .token' "$SECRETS_DIR/age
 
 Expect `TOKEN matches a record for cursor.` The next step is only worth running if both pass.
 
-Stage the three settings in **one** new version. `wrangler versions secret bulk` creates a version and does not deploy it. `wrangler secret put` and `wrangler secret bulk` create a version **and deploy it at once**, so do not use them:
+Stage the three settings in **one** new version. `TOKEN_RECORDS_FILE` defaults to the canonical records file; the revocation procedure overrides it with the checked `.next.json` file. `wrangler versions secret bulk` creates a version and does not deploy it. `wrangler secret put` and `wrangler secret bulk` create a version **and deploy it at once**, so do not use them:
 
 ```sh
 export EGREGORE_APP_ID_VALUE=5503558
+TOKEN_RECORDS_FILE="${TOKEN_RECORDS_FILE:-$SECRETS_DIR/agent-tokens.records.json}"
 jq -n \
-  --rawfile tokens "$SECRETS_DIR/agent-tokens.records.json" \
+  --rawfile tokens "$TOKEN_RECORDS_FILE" \
   'def need: if . == null or . == "" then error("a required value is missing or empty") else . end;
    {
      EGREGORE_AGENT_TOKENS: ($tokens | fromjson | tojson | need),
@@ -172,7 +173,7 @@ jq -n \
   wr versions secret bulk --name egeregore \
     --message "Stage secrets for the first release. Not deployed." \
     --tag "secrets-$(date +%Y%m%d)"
-unset EGREGORE_APP_ID_VALUE
+unset EGREGORE_APP_ID_VALUE TOKEN_RECORDS_FILE
 ```
 
 `jq` reads the key from the environment, so it is never an argument. The `need` check makes `jq` stop with an error and print nothing when the key, the ID or the records are unset or empty. That matters because Wrangler deletes a secret whose value is `null`, so an unset `EGREGORE_APP_PRIVATE_KEY` would otherwise stage a version without the App key. With nothing on standard input Wrangler stages no version, and `pipefail` makes the pipeline exit non-zero. Stop if it does. Wrangler reads the JSON from standard input and prints only the names it set. The new version copies the code and settings of the newest uploaded version. After staging, inspect `wr versions view "$RELEASE_VERSION" --name egeregore` and require its commit annotation to match the exact `CODE_VERSION` SHA recorded in step 0. If the annotation is missing or differs, stop: do not promote or open the URL. Workers Builds may upload during staging; this post-stage comparison is the release gate. A later `versions upload` from Workers Builds keeps the existing secrets.
@@ -239,12 +240,12 @@ What it checks, in order:
 
 1. **Metadata is open.** `tools/list` works with no token and lists all 12 tools.
 2. **Unauthenticated refusal.** Every tool, called with no header, a malformed header, and a wrong random token, answers `unauthenticated`. The refusal text is the same for all three, so it does not say which part failed.
-3. **Per token, forbidden paths.** Every tool the token's permissions or tool list do not allow answers `forbidden`. A refused call makes no GitHub call. If a refused call succeeds, the script fails, undoes a claim it made, and tells you which comment to look for.
+3. **Per token, forbidden paths.** Each tool the token's permissions or tool list do not allow is checked for `forbidden`, except `handoff_task` and (without `--pull`) `request_review`, which are skipped as described below. A refused call makes no GitHub call. If a refused call succeeds, the script fails, undoes a claim it made, and tells you which comment to look for.
 4. **Per token, allowed reads.** `ping` answers `pong`, and `get_tasks`, `get_task`, `get_task_history`, `get_owner_decisions` and `get_specialists` return `ok`. This also proves the GitHub App key and ID work, because the reads mint an installation token.
 5. **Per token that may write.** One token at a time: `claim_task`, `post_progress`, `renew_lease`, `release_task` on `ISSUE`. The lease is released even if a step fails.
-6. **Review, only if Aaron named a test pull request** (`--pull N`). One token that may review calls `request_review`, which posts a comment that makes Codex run. The Worker refuses a second request for the same head commit, so the other review tokens are skipped. Without `--pull` the live review call is not made. The refusal for tokens that lack `review` is still checked.
+6. **Review, only if Aaron named a test pull request** (`--pull N`). One token that may review calls `request_review`, which posts a comment that makes Codex run. The Worker refuses a second request for the same head commit, so the other review tokens are skipped. Without `--pull`, both the allowed review call and the forbidden-permission probe are skipped because no valid pull request can be formed. With `--pull`, the refusal for tokens that lack `review` is checked.
 
-`handoff_task` is not run live, because it opens a new issue. A token that may not write is still checked against it, and the handoff logic is covered by the Worker's tests and by [phase5-live-test-plan.md](phase5-live-test-plan.md).
+`handoff_task` is not run live for any token because an authorized call opens a new issue. A token without write permission is covered by the Worker's authorization tests, which verify `forbidden` before any GitHub call; the handoff behavior is also covered by the Worker tests and [phase5-live-test-plan.md](phase5-live-test-plan.md).
 
 Read-only variant, which posts nothing: add `--no-write`.
 
@@ -310,7 +311,7 @@ jq --arg label "$OLD_LABEL" 'map(select(.label != $label))' "$SECRETS_DIR/agent-
 node --experimental-strip-types --no-warnings worker/scripts/check-agent-tokens.mjs < "$SECRETS_DIR/agent-tokens.records.next.json"
 ```
 
-Then stage as in step 2 (with the `.next.json` file) and promote as in step 3, with Aaron's sign-off for the promotion. Only after promotion succeeds, replace the canonical records file with the promoted set: `mv "$SECRETS_DIR/agent-tokens.records.next.json" "$SECRETS_DIR/agent-tokens.records.json"`. This keeps the next revocation based on the active set, so it cannot restore a token retired earlier. If staging or promotion fails, leave the canonical file untouched and investigate before retrying. Remove the raw token from the private file when done, and tell the client to stop using it. Labels are in `agent-tokens.private.json`. Each generated token gets a default label of the form `agent-YYYYMMDD-xxxxxxxx`, where the last part is random for that token, so a rotation on the same day never reuses a label. If you give labels in a plan file, keep them unique across the old and new sets. The `jq -e` line stops the command when zero or two records match, so a retired label cannot take a new token with it.
+Before repeating the step 2 staging block, set `TOKEN_RECORDS_FILE="$SECRETS_DIR/agent-tokens.records.next.json"`. Its `jq --rawfile` command then stages this checked next set, not the canonical file. Promote as in step 3, with Aaron's sign-off for the promotion. Only after promotion succeeds, replace the canonical records file with the promoted set: `mv "$SECRETS_DIR/agent-tokens.records.next.json" "$SECRETS_DIR/agent-tokens.records.json"`. This keeps the next revocation based on the active set, so it cannot restore a token retired earlier. If staging or promotion fails, leave the canonical file untouched and investigate before retrying. Remove the raw token from the private file when done, and tell the client to stop using it. Labels are in `agent-tokens.private.json`. Each generated token gets a default label of the form `agent-YYYYMMDD-xxxxxxxx`, where the last part is random for that token, so a rotation on the same day never reuses a label. If you give labels in a plan file, keep them unique across the old and new sets. The `jq -e` line stops the command when zero or two records match, so a retired label cannot take a new token with it.
 
 ### Rotate tokens without a gap
 

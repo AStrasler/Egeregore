@@ -75,6 +75,7 @@ describe("smoke test against the real Worker with a fake GitHub", () => {
     expect(failures(report)).toEqual([]);
     expect(report.ok).toBe(true);
     expect(report.passed).toBeGreaterThan(60);
+    expect(report.checks.some((check) => check.status === "skip" && check.name === "chatgpt: handoff_task forbidden probe")).toBe(true);
     // chatgpt's refusals posted nothing: the only comments come from cursor and codex.
     const writers = github.writes.map((call) => call.method + " " + call.path.replace(`/repos/${REPO}/`, ""));
     expect(writers.filter((line) => line.startsWith("POST issues/1/comments")).length).toBe(8);

@@ -4,7 +4,7 @@
 //
 //   node --experimental-strip-types worker/scripts/smoke-test.mjs \
 //     --url https://egeregore.<subdomain>.workers.dev/mcp \
-//     --workers-subdomain <subdomain> \\
+//     --workers-subdomain <subdomain> \
 //     --tokens-file ~/.egregore-secrets/<dir>/agent-tokens.private.json \
 //     --issue 123 [--pull 124] [--no-write]
 //
@@ -40,7 +40,7 @@ function parse(argv) {
       if (index >= argv.length) fail(`${flag} needs a value`);
       out[flag.slice(2)] = argv[index];
     } else if (flag === "--help" || flag === "-h") {
-      process.stdout.write("Usage: smoke-test.mjs --url URL --workers-subdomain NAME --tokens-file FILE --issue N [--pull N] [--no-write]\\n");
+      process.stdout.write("Usage: smoke-test.mjs --url URL --workers-subdomain NAME --tokens-file FILE --issue N [--pull N] [--no-write]\n");
       process.exit(0);
     } else fail(`Unknown option ${flag}`);
   }

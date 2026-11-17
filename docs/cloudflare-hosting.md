@@ -97,7 +97,7 @@ Some hosted clients, ChatGPT among them, may only connect to a remote MCP server
 
 ## GitHub App key as a Worker secret
 
-- Secrets: `EGREGORE_APP_PRIVATE_KEY` and `EGREGORE_AGENT_TOKENS`. Plain variables (not secret): `EGREGORE_APP_ID` (`5503558`), `EGREGORE_REPO` (`AStrasler/Egeregore`).
+- Secrets: `EGREGORE_APP_PRIVATE_KEY`, `EGREGORE_AGENT_TOKENS`, and `EGREGORE_APP_ID` (`5503558`, set as a secret so later uploads retain it). Plain variable (not secret): `EGREGORE_REPO` (`AStrasler/Egeregore`).
 - **Egregore stages the secrets from its own box, and Aaron approves the release.** `wrangler versions secret bulk` puts them on a new version that is not live. Promoting that version is Aaron's gate. Nothing prints a secret, and nothing sets one without the runbook's checks. `EGREGORE_APP_ID` is a number, not sensitive, but the runbook sets it with the secrets, because `wrangler.jsonc` carries no variables and a secret survives later uploads.
 - The Worker signs a short RS256 JWT with WebCrypto, then calls `POST /app/installations/{id}/access_tokens` with `repositories: ["Egeregore"]` and the three permissions. It refuses to proceed if the response lists another repository or a wider permission. This is the same check as `mcp/egregore_mcp`.
 - WebCrypto imports PKCS#8 keys. GitHub gives a PKCS#1 (`BEGIN RSA PRIVATE KEY`) key. Either convert the key once to PKCS#8 before storing it, or wrap it at runtime. The code, not this document, will pick one.
