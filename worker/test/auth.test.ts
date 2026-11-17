@@ -3,6 +3,7 @@ import {
   GitHubAppAuth,
   GitHubAppConfigError,
   GitHubAppScopeError,
+  checkPermissions,
   importSigningKey,
   normalizePem,
   pemToPkcs8,
@@ -35,6 +36,41 @@ function setup(options: ConstructorParameters<typeof FakeGitHub>[0] = {}, pem?: 
 }
 
 describe("GitHub App token", () => {
+  it("rejects inherited permission names", () => {
+    expect(() => checkPermissions({
+      issues: "write",
+      pull_requests: "read",
+      metadata: "read",
+      toString: "read",
+    })).toThrow(GitHubAppScopeError);
+  });
+
+  it.each(["__proto__", "constructor"])("rejects an own %s permission", (name) => {
+    const permissions = {
+      issues: "write",
+      pull_requests: "read",
+      metadata: "read",
+    };
+    Object.defineProperty(permissions, name, { value: "admin", enumerable: true });
+    expect(() => checkPermissions(permissions)).toThrow(GitHubAppScopeError);
+  });
+
+
+  it("rejects inherited permission levels", () => {
+    expect(() => checkPermissions({
+      issues: "toString",
+      pull_requests: "read",
+      metadata: "read",
+    })).toThrow(GitHubAppScopeError);
+  });
+
+  it("does not accept a required scope inherited from the prototype", () => {
+    const permissions = Object.create({ issues: "write" });
+    permissions.pull_requests = "read";
+    permissions.metadata = "read";
+    expect(() => checkPermissions(permissions)).toThrow(/issues:missing/);
+  });
+
   it("signs an RS256 JWT and asks for a one-repository, three-permission token", async () => {
     const { github, auth, budget } = setup();
     const token = await auth.token(budget);
