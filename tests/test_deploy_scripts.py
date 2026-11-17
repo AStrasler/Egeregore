@@ -340,6 +340,13 @@ class RunbookDecisionTests(unittest.TestCase):
         self.assertIn("Before Step 2, an owner must narrow the App installation to `AStrasler/Egeregore`", self.text)
         self.assertIn("Stop if any other repository remains selected", self.text)
 
+    def test_version_ids_and_commit_sha_are_kept_separate(self) -> None:
+        self.assertIn('COMMIT_SHA="$(git rev-parse HEAD)"', self.text)
+        self.assertIn('record the new version ID as `CODE_VERSION`', self.text)
+        self.assertIn('RELEASE_VERSION="<version-id>"', self.text)
+        self.assertIn('copy the version ID reported by `wr versions secret bulk` into `RELEASE_VERSION`', self.text)
+        self.assertIn('commit annotation to match the exact `COMMIT_SHA`', self.text)
+
     def test_revocation_stages_the_checked_next_records_file(self) -> None:
         staging = self.text[self.text.index("## Step 2."):self.text.index("## Gate.")]
         revoke = self.text[self.text.index("### Revoke one token"):self.text.index("### Rotate tokens without a gap")]

@@ -64,7 +64,7 @@ This step reads the Cloudflare credential, so it starts only after the prerequis
 set +x
 set -o pipefail                                # a failed `cf ... | jq` must not look like success
 cd "$(git rev-parse --show-toplevel)"           # a checkout of main at the commit being released
-git rev-parse HEAD                              # record this SHA; it is the commit to release
+COMMIT_SHA="$(git rev-parse HEAD)"                   # keep separate from either Worker version ID
 node --version                                  # 22.12 or later, the Worker's engines.node
 (cd worker && npm ci)                           # exact versions from the lockfile
 wr() { (cd worker && npx wrangler "$@"); }      # run wrangler from worker/, where wrangler.jsonc is
@@ -97,7 +97,8 @@ cf GET "/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" | jq -r .result.subd
 Write down, outside the repository:
 
 - `PREVIOUS_VERSION`: the version ID that is live now. This is the rollback target. It may be the starter "Hello world" Worker.
-- `CODE_VERSION`: the newest uploaded version, from Workers Builds, for the commit in `git rev-parse HEAD`. Check its commit annotation with `wr versions view <id> --name egeregore`. If it is not the commit being released, upload one from the box, which makes a version and deploys nothing: `wr versions upload --tag "$(git rev-parse --short HEAD)"`.
+- `COMMIT_SHA`: the source commit recorded above.
+- `CODE_VERSION`: the Worker version ID uploaded by Workers Builds for `COMMIT_SHA`. Check its commit annotation with `wr versions view <id> --name egeregore`. If it is not annotated with `COMMIT_SHA`, upload one from the box, which makes a version and deploys nothing: `wr versions upload --tag "$(git rev-parse --short HEAD)"`, then record the new version ID as `CODE_VERSION`.
 - Whether `workers.dev` is `enabled: false` (expected) and whether the account has a `workers.dev` subdomain.
 
 Stop if any of these is true:
@@ -173,10 +174,12 @@ jq -n \
   wr versions secret bulk --name egeregore \
     --message "Stage secrets for the first release. Not deployed." \
     --tag "secrets-$(date +%Y%m%d)"
+# Replace with the Worker version ID printed by Wrangler; this is not a commit SHA.
+RELEASE_VERSION="<version-id>"
 unset EGREGORE_APP_ID_VALUE TOKEN_RECORDS_FILE
 ```
 
-`jq` reads the key from the environment, so it is never an argument. The `need` check makes `jq` stop with an error and print nothing when the key, the ID or the records are unset or empty. That matters because Wrangler deletes a secret whose value is `null`, so an unset `EGREGORE_APP_PRIVATE_KEY` would otherwise stage a version without the App key. With nothing on standard input Wrangler stages no version, and `pipefail` makes the pipeline exit non-zero. Stop if it does. Wrangler reads the JSON from standard input and prints only the names it set. The new version copies the code and settings of the newest uploaded version. After staging, inspect `wr versions view "$RELEASE_VERSION" --name egeregore` and require its commit annotation to match the exact `CODE_VERSION` SHA recorded in step 0. If the annotation is missing or differs, stop: do not promote or open the URL. Workers Builds may upload during staging; this post-stage comparison is the release gate. A later `versions upload` from Workers Builds keeps the existing secrets.
+`jq` reads the key from the environment, so it is never an argument. The `need` check makes `jq` stop with an error and print nothing when the key, the ID or the records are unset or empty. That matters because Wrangler deletes a secret whose value is `null`, so an unset `EGREGORE_APP_PRIVATE_KEY` would otherwise stage a version without the App key. With nothing on standard input Wrangler stages no version, and `pipefail` makes the pipeline exit non-zero. Stop if it does. Wrangler reads the JSON from standard input and prints only the names it set. The new version copies the code and settings of the newest uploaded version. After staging, copy the version ID reported by `wr versions secret bulk` into `RELEASE_VERSION` (it is a Worker version ID, not a commit SHA). Inspect `wr versions view "$RELEASE_VERSION" --name egeregore` and require its commit annotation to match the exact `COMMIT_SHA` recorded in step 0. If the annotation is missing or differs, stop: do not promote or open the URL. Keep `CODE_VERSION`, `RELEASE_VERSION` and `COMMIT_SHA` as separate values. Workers Builds may upload during staging; this post-stage comparison is the release gate. A later `versions upload` from Workers Builds keeps the existing secrets.
 
 Check that nothing went live:
 
