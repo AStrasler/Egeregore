@@ -219,7 +219,7 @@ MCP_URL="https://egeregore.$SUBDOMAIN.workers.dev/mcp"
 Notes:
 
 - `wrangler.jsonc` still says `workers_dev: false`. `versions upload` does not apply it, so the setting above stands. A future `wrangler deploy` would turn the URL off again. The build command stays `wrangler versions upload`, so this does not happen by accident.
-- If either command exits non-zero or asks anything unexpected, go to step 6 (rollback) and report. Do not build `MCP_URL` or run the smoke test unless the `cf POST` succeeded and `SUBDOMAIN` is a real name, not empty or `null`.
+- If either command exits non-zero or asks anything unexpected, stop and report the command and observed deployment state to Aaron. Do not retry or roll back; either action that changes production needs its own owner decision and Aaron's explicit words before any command runs. Do not build `MCP_URL` or run the smoke test unless the `cf POST` succeeded and `SUBDOMAIN` is a real name, not empty or `null`.
 
 ## Step 4. Smoke test
 

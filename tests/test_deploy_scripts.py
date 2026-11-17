@@ -112,7 +112,7 @@ class ProvisionTests(unittest.TestCase):
         for label in labels:
             self.assertRegex(label, r"^(cursor|codex)-\d{8}-[0-9a-f]{8}$")
 
-    def test_a_merged_rotation_set_keeps_every_label_unique_and_revokes_only_one(self) -> None:
+    def test_provisioned_record_sets_have_unique_labels_and_filter_one_record(self) -> None:
         second = Path(self.tmp.name) / "secrets" / "second"
         self.assertEqual(self.provision().returncode, 0)
         self.assertEqual(run(PROVISION, "--out-dir", str(second)).returncode, 0)
@@ -368,6 +368,12 @@ class RunbookDecisionTests(unittest.TestCase):
     def test_manual_code_version_upload_tags_the_full_commit_sha(self) -> None:
         self.assertIn('wr versions upload --tag "$COMMIT_SHA"', self.text)
         self.assertNotIn('wr versions upload --tag "$(git rev-parse --short HEAD)"', self.text)
+
+    def test_step_three_failures_stop_before_rollback(self) -> None:
+        notes = self.text[self.text.index("## Step 3. Promote and open the URL"):self.text.index("## Step 4. Smoke test")]
+        self.assertIn("stop and report the command and observed deployment state to Aaron", notes)
+        self.assertIn("Do not retry or roll back", notes)
+        self.assertNotIn("go to step 6 (rollback)", notes)
 
     def test_smoke_runbook_names_live_probe_skips(self) -> None:
         section = self.text[self.text.index("What it checks, in order:"):self.text.index("Read-only variant")]
