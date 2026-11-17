@@ -302,6 +302,9 @@ class RunbookDecisionTests(unittest.TestCase):
 
     text = (ROOT / "docs" / "DEPLOY-RUNBOOK.md").read_text(encoding="utf-8")
 
+    def _revoke_section(self) -> str:
+        return self.text[self.text.index("### Revoke one token"):self.text.index("### Rotate tokens without a gap")]
+
     def test_the_prerequisite_comes_before_the_first_step_and_cites_agents_md(self) -> None:
         pre = self.text.index("## Prerequisite: an owner decision before any step")
         self.assertLess(pre, self.text.index("## Step 0."))
@@ -350,16 +353,19 @@ class RunbookDecisionTests(unittest.TestCase):
 
     def test_revocation_stages_the_checked_next_records_file(self) -> None:
         staging = self.text[self.text.index("## Step 2."):self.text.index("## Gate.")]
-        revoke = self.text[self.text.index("### Revoke one token"):self.text.index("### Rotate tokens without a gap")]
+        revoke = self._revoke_section()
         self.assertIn('--rawfile tokens "$TOKEN_RECORDS_FILE"', staging)
         self.assertIn('TOKEN_RECORDS_FILE="$SECRETS_DIR/agent-tokens.records.next.json"', revoke)
 
     def test_revocation_guard_chains_before_filter_and_parser(self) -> None:
-        revoke = self.text[self.text.index("### Revoke one token"):self.text.index("### Rotate tokens without a gap")]
-        self.assertIn("length == 1' \"$SECRETS_DIR/agent-tokens.records.json\" && \\", revoke)
-        self.assertIn("records.next.json\" && \\", revoke)
-        self.assertIn("< \"$SECRETS_DIR/agent-tokens.records.next.json\"", revoke)
+        revoke = self._revoke_section()
+        command_chain = r"""jq -e --arg label "$OLD_LABEL" '[.[] | select(.label == $label)] | length == 1' "$SECRETS_DIR/agent-tokens.records.json" && \
+  jq --arg label "$OLD_LABEL" 'map(select(.label != $label))' "$SECRETS_DIR/agent-tokens.records.json" > "$SECRETS_DIR/agent-tokens.records.next.json" && \
+  node --experimental-strip-types --no-warnings worker/scripts/check-agent-tokens.mjs < "$SECRETS_DIR/agent-tokens.records.next.json"
+"""
+        self.assertIn(command_chain, revoke)
         self.assertIn("`<agent>-YYYYMMDD-xxxxxxxx`", revoke)
+        self.assertIn("one of `chatgpt`, `grokbot`, `cursor`, or `codex`", revoke)
 
     def test_rotation_stages_and_promotes_the_merged_records(self) -> None:
         rotation = self.text[self.text.index("### Rotate tokens without a gap"):self.text.index("### Rotate the GitHub App key")]
@@ -389,7 +395,7 @@ class RunbookDecisionTests(unittest.TestCase):
         self.assertIn("before any GitHub call", section)
 
     def test_each_successful_revocation_updates_the_canonical_record_set(self) -> None:
-        section = self.text[self.text.index("### Revoke one token"):self.text.index("### Rotate tokens without a gap")]
+        section = self._revoke_section()
         promoted = section.index("Only after promotion succeeds")
         replaced = section.index('mv "$SECRETS_DIR/agent-tokens.records.next.json" "$SECRETS_DIR/agent-tokens.records.json"')
         self.assertGreater(replaced, promoted)
@@ -410,4 +416,3 @@ class RunbookDecisionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
