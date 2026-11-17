@@ -355,7 +355,9 @@ class RunbookDecisionTests(unittest.TestCase):
         staging = self.text[self.text.index("## Step 2."):self.text.index("## Gate.")]
         revoke = self._revoke_section()
         self.assertIn('--rawfile tokens "$TOKEN_RECORDS_FILE"', staging)
-        self.assertIn('TOKEN_RECORDS_FILE="$SECRETS_DIR/agent-tokens.records.next.json"', revoke)
+        assignment = 'TOKEN_RECORDS_FILE="$SECRETS_DIR/agent-tokens.records.next.json"'
+        self.assertIn(assignment, revoke)
+        self.assertLess(revoke.index(assignment), revoke.index("stages this checked next set"))
 
     def test_revocation_guard_chains_before_filter_and_parser(self) -> None:
         revoke = self._revoke_section()
