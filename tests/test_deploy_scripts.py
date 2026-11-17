@@ -390,6 +390,12 @@ class RunbookDecisionTests(unittest.TestCase):
         self.assertIn("Do not retry or roll back", notes)
         self.assertNotIn("go to step 6 (rollback)", notes)
 
+    def test_smoke_failures_stop_before_rollback(self) -> None:
+        troubleshooting = self.text[self.text.index("## Step 4. Smoke test"):self.text.index("## Step 5.")]
+        self.assertIn("stop and report the command and observed state to Aaron", troubleshooting)
+        self.assertIn("Do not run step 6", troubleshooting)
+        self.assertIn("separate owner decision and explicit approval for rollback", troubleshooting)
+
     def test_smoke_runbook_names_live_probe_skips(self) -> None:
         section = self.text[self.text.index("What it checks, in order:"):self.text.index("Read-only variant")]
         self.assertIn("both the allowed review call and the forbidden-permission probe are skipped", section)

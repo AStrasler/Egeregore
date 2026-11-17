@@ -263,7 +263,7 @@ Read-only variant, which posts nothing: add `--no-write`.
 | A refused call succeeded | A record is wider than the file says. Fix the records, stage again, and re-promote. Look at the issue for a comment that should not be there. |
 | A request fails outright | The URL is off, or a Cloudflare limit applies. Check `cf GET .../subdomain`. |
 
-Any failure other than a bad test issue is a reason to run step 6, not to leave the Worker open and keep trying.
+Any failure other than a bad test issue is a reason to stop and report the command and observed state to Aaron. Do not run step 6 or keep retrying without Aaron's separate owner decision and explicit approval for rollback.
 
 **Clean up.** Close the test issue as Egregore through the GitHub connector. The Worker has no close tool, and the claim, progress, and renewal comments stay on the closed issue. That is expected. They contain coordination text only. Confirm the issue ended in `status:ready` before it was closed, so no stale lease label is left.
 
